@@ -1,0 +1,474 @@
+---
+title: "Mini-project-1"
+authors: "Beau Nelson, Yucheng Yang"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(tidyverse)
+```
+
+```{r include = FALSE}
+jurors<-read.csv("http://math.carleton.edu/kstclair/data/APM_jurors.csv")
+trials<-read.csv("http://math.carleton.edu/kstclair/data/APM_trials.csv")
+dire_answers<-read.csv("http://math.carleton.edu/kstclair/data/APM_voir_dire_answers.csv")
+```
+
+```{r, include = FALSE}
+#View(jurors)
+#View(trials)
+#View(dire_answers)
+joint<-inner_join (jurors, trials, by=c("trial__id"="id"))
+#distribution of defendents and jurors
+#bar graph
+ggplot(data = jurors, aes(x = race)) +
+  geom_bar()
+ggplot(data = trials, aes(x = defendant_race)) +
+  geom_bar()
+#summary stats
+#distribution of "struck" categories 
+#stacked bargraph
+ggplot(data = jurors, aes(x = race, fill = struck_by)) +
+  geom_bar()
+#chances of being struck by state (population stats)
+test <- jurors %>%
+  mutate(state = struck_by == "Struck by the state") %>%
+  group_by(state) %>%
+  summarize(total = n())
+ggplot(data = test, aes(x = state, y = total)) +
+  geom_col()
+#by race, chance of getting struck by state
+#stacke bar graph
+test_3 <- jurors %>%
+  mutate(state = struck_by == "Struck by the state") %>%
+  group_by(race, state) %>%
+  summarize(total = n()) %>% filter(!race=="Asian",!race=="Latino")
+ggplot(data = test_3, aes(x = race, y = total, fill = state)) +
+  geom_col(position = "fill") 
+#the chance of being struck in the population 
+z <- 1852/13022
+ggplot(data = test_3, aes(x = race, y = total, fill = state)) +
+  geom_col(position = "fill") +
+  geom_hline(aes(yintercept = z))
+#defendent race
+ggplot(data = trials, aes(x = defendant_race)) +
+  geom_bar()
+```
+
+```{r, include=FALSE}
+#join tables
+joint<-inner_join (jurors, trials, by=c("trial__id"="id"))
+#summary stats on race distribution for each trial(filter the chosen jurors)
+try1<-joint %>% 
+  filter(struck_by=="Juror chosen to serve on jury"|struck_by=="Juror not struck"|struck_by=="Juror chosen as alternate"|struck_by=="Juror excused/absent") %>% 
+  group_by(trial__id) %>% 
+  mutate(race_tot=n()) 
+#struck type
+joint %>% group_by(struck_by) %>% summarise(ct=n())
+try2<-try1 %>% 
+  filter(struck_by=="Juror chosen to serve on jury"|struck_by=="Juror not struck"|struck_by=="Juror chosen as alternate"|struck_by=="Juror excused/absent") %>% 
+  group_by(trial__id,race) %>% 
+  summarise(race_ct=n(), perc=n()/race_tot) 
+  
+try3<-try2 %>% group_by(trial__id) %>% unique()
+try3
+#defendants racial distribution 
+trials %>% select(id, defendant_race) %>% 
+  ggplot()+geom_histogram(aes(x=defendant_race), stat="count")
+#defendants' race added into the racial distribution per trial df
+def_race<-trials %>% select(id, defendant_race)
+joint_def<-inner_join(try3, def_race, by=c("trial__id"="id"))
+joint_def
+#average jurors' racial distribution data
+tot<-joint %>% filter(struck_by=="Juror chosen to serve on jury"|struck_by=="Juror not struck"|struck_by=="Juror chosen as alternate"|struck_by=="Juror excused/absent")
+nrow(tot)
+ave1<-joint %>% filter(struck_by=="Juror chosen to serve on jury"|struck_by=="Juror not struck"|struck_by=="Juror chosen as alternate"|struck_by=="Juror excused/absent") %>%
+  group_by(race) %>% 
+  summarise(tot=n(), perc=as.double(tot/7817))
+ave1
+#black ratio
+1859/7817
+#white ratio
+3786/7817
+#Black ratio lower? 
+#Results: There's 13% among all trials with a lower percentage of Black jurors compared to the average level when the defendant is Black people.
+b_ratio_lower<-joint_def %>%  filter(perc<0.2378, defendant_race=="Black", race=="Black") 
+b_ratio_lower
+nrow(b_ratio_lower)/nrow(trials)
+#White lower?
+w_ratio_lower<-joint_def %>%  filter(perc<0.4843, defendant_race=="Black", race=="White") 
+w_ratio_lower
+nrow(w_ratio_lower)/nrow(trials)
+#Black higher?
+b_ratio_higher<-joint_def %>%  filter(perc>0.2378, defendant_race=="Black", race=="Black") 
+b_ratio_higher
+nrow(b_ratio_higher)/nrow(trials)
+#White ratio higher? 
+#Results: There's 48.9% among all trials with a higher percentage of White jurors compared to the average level when the defendant is Black people.
+w_ratio_higher<-joint_def %>%  filter(perc>0.4843, defendant_race=="Black", race=="White") 
+nrow(w_ratio_higher)/nrow(trials)
+#table summary
+average<-c("0.2378", "0.4843")
+race<-c("Black", "White")
+lower_than_ave<-c("0.1967", "0.0689 ")
+higher_than_ave<-c(" 0.3410", "0.4557")
+table1<-data.frame(race, average, lower_than_ave, higher_than_ave) 
+table1<-table1 %>% mutate( defendant_race ="Black")
+table1
+```
+
+
+
+```{r, include=FALSE}
+trials %>% group_by(verdict) %>% 
+  summarise(ct=n())
+guilty<-259
+verd<-trials %>% filter(verdict=="Guilty on at least one offense") %>% 
+  select(id, verdict)
+verd
+verd_case<-semi_join( joint_def,verd, by=c("trial__id"="id"))
+verd_case
+#average jurors' racial distribution data when the verdict is guilty
+sum(verd_case$race_ct)
+ave2<-verd_case %>% group_by(race) %>% 
+  summarise(tot=sum(race_ct), perc=as.double(tot/6614))
+ave2
+1473/6614
+3058/6614
+#Black ratio lower? 
+#Results: There's 13% among all trials with a lower percentage of Black jurors compared to the average level when the defendant is Black people.
+b_ratio_lower2<-verd_case %>%  filter(perc<0.2227, defendant_race=="Black", race=="Black") 
+b_ratio_lower2
+nrow(b_ratio_lower2)/guilty
+#White lower?
+w_ratio_lower2<-verd_case %>%  filter(perc<0.4624, defendant_race=="Black", race=="White") 
+w_ratio_lower2
+nrow(w_ratio_lower2)/guilty
+#Black higher?
+b_ratio_higher2<-verd_case %>%  filter(perc>0.2227, defendant_race=="Black", race=="Black") 
+b_ratio_higher2
+nrow(b_ratio_higher2)/guilty
+#White ratio higher? 
+#Results: There's 48.9% among all trials with a higher percentage of White jurors compared to the average level when the defendant is Black people.
+w_ratio_higher2<-verd_case %>%  filter(perc>0.4624, defendant_race=="Black", race=="White") 
+nrow(w_ratio_higher2)/guilty
+#table summary
+average2<-c("0.2227", "0.4624")
+race2<-c("Black", "White")
+lower_than_ave2<-c("0.1853", "0.0579")
+higher_than_ave2<-c("0.3359", "0.4479")
+table2<-data.frame(race2, average2, lower_than_ave2, higher_than_ave2) 
+table2<-table2 %>% mutate( verdict ="Guilty on at least one offense", defendant_race ="Black")
+# Question 4
+Master <- jurors %>% 
+  inner_join(trials, by=c("trial__id"="id")) %>%
+  group_by(race)
+Master_2 <- Master %>%
+  filter(struck_by == "Juror not struck") %>%
+  group_by(trial__id) %>%
+  mutate(ethnic = !race=="White") %>%
+  summarize(ethnic_rat = mean(ethnic))
+Trials_3 <- trials %>%
+  inner_join(Master_2, by=c("id"="trial__id"))
+Trial_Table <- Trials_3 %>%
+  group_by(verdict) %>%
+  summarize(ethnic_rat = mean(ethnic_rat))
+# Question 1
+year_num <- str_split_fixed(trials$cause_number, "-", 2) # This splits out cause_number variable into a matrix with year and the other associated number as variables.
+year <- year_num[,1] # Here we further subset this to select only the year from year_num.
+Trials_1 <- trials %>% # this piping adds this year element into our data in a more precise manner.
+  mutate(year = year) %>%
+  mutate(strike = state_strikes == TRUE | defense_strikes == TRUE ) # this just takes into account if there was a strike no matter the type.
+Trials_2 <- Trials_1 %>% # This last set of piping summarizes our data so we can clearly see how many strikes happened per year in this set.
+  group_by(year, strike) %>%
+  summarize(total = sum(strike)) %>%
+  filter(strike == TRUE)
+# Question 5
+Jurors_2 <- jurors %>% 
+  mutate(state = struck_by == "Struck by the state") %>%
+  group_by(race, state) %>%
+  summarize(total = n()) # This data creates a new variable struck_by to look if each Juror in the APM_juror set was struck by the state. We then group these entries by race to see the likliehood that each race has 
+Jurors_3 <- Jurors_2 %>%
+  filter(!race=="Asian",!race=="Latino") # takes out races that have limited data entries
+  
+z <- 1852/13022
+```
+
+
+
+# Introduction
+  Race equity was a major topic of discussion throughout the large part of 2020 in response to the efforts of the Black Lives Matter Movement. In this report we were able to further investigate how the presence of racial bias affects legal procedures. To build some context of this report it is important to mention that the data used was gathered by journalists at APM Reports podcast, “In the Dark.” Specifically, they “spent a year gathering and analyzing court records to build a data set of peremptory strikes in the Fifth Circuit Court District of Mississippi from 1992 through 2017.” This was done in part by a larger effort to investigate the trials of Curtis Flowers. There seemed to be a lot of uncertainty with his case because there were 6 different trials with three different overturned convictions and a Batson violation. “In 1986, the U.S. Supreme Court ruled in Batson v. Kentucky that it is unconstitutional for prosecutors to use race as a reason for exercising peremptory strikes against African-American potential jurors.” Through the graph below we can see how this decision has influenced the volume of striking.
+
+```{r echo=FALSE, out.width="50%"}
+ggplot(data = Trials_2, aes(x = year, y = total)) +
+  geom_line(group = 1) +
+  geom_point() +
+  xlab("Year") +
+  ylab("Number of Strikes") +
+  ggtitle("Number of Strikes 1997-2017") +
+  scale_x_discrete(breaks = seq(from = 1991, to = 2017, by = 5))
+?labs
+```
+  Our deep dive of this data provided excellent conversation points as we looked at 2 major questions:  Does the racial composition of a jury relate to the defendant's race or the trial’s verdict? Does the race of a juror affect their probability of being struck? 
+# Methdology
+  To answer our first question: does the race of a juror affect their probability of being struck by the state,  we investigated past observed proportions of who was struck by the state and who was not. It is also important to clarify that being struck by the state does not include strikes by the defense, for cause, or without notation.  We wanted to look at just strikes by the state because this is what we felt was most relevant, when comparing the Batson Case in 1986. Finally, we wanted to be able to compare these observations to the likelihood of incurring a state-strike when not taking race into account. This allows us to look at a model and then add another variable to see how our data changes.
+  When looking at whether race had anything to do with the outcome of the trial we had to be somewhat resourceful. Because, race is a categorical variable we had an obstacle to overcome. Therefore we created a ethnicity rating for each trial. If the mean ethnic score (the proportion of non-stricken jurors who did not identify as white) was high, then the trial, subsequently, had an ethnically diverse jury. With this quantifiable rating, we could see how this rating distributed between different verdict results.
+  To answer the question of “whether the racial composition in trials relates to the defendant’s race”, we first summarised the racial composition of each trial in the “trials” dataset. Then, we polled the dataset for all jurors and filtered those who were chosen to be in a jury, and calculated the overall racial composition for Black people and White people as the “average” level. Then we calculated the percentage of trials with Black defendants among all trials with a lower Black and White racial composition than the “average” level, the percentage of trials with a higher Black and White racial composition compared to the average level as well and then summarised all the data in table1.
+  To explore the question of  “whether the racial composition in trials relates to the defendant’s race when the trial verdict is guilty”, we again used the table of the racial composition of each trial made before and filtered out those with the trial verdict as "Guilty on at least one offense". Then, we polled the dataset for all jurors chosen to be in a jury with the trial verdict as guilty, and calculated the overall racial composition for “Black” and “White” as the “average2” level. Then we calculated the percentage of trials (verdict as guilty) with Black defendants that have a lower Black and White racial composition than the “average2” level, the percentage of trials with a higher Black and White racial composition compared to the “average2” level and then summarised all the data in table2.
+The summary data in table1 and table2 were also presented in the form of bar graphs to better see the contrast.
+
+
+# Results
+
+## Does race of juror effect their probability of being struck?
+
+  The table below has a lot of information. The y-axis is the proportion of who was struck by the state while the x axis splits these measurements into columns. We can see how black identifying individuals were struck at a rate 15% higher than their white identifying counterparts. Both measurements straddle the overall average proportion of those struck at roughly 14%. Though this seems pretty substantial, I would say that just because we observed this doesn’t mean there aren’t confounding factors which might make these findings obsolete.
+  
+```{r echo=FALSE, out.width="50%"}
+ggplot(data = Jurors_3, aes(x = race, y = total, fill = state)) +
+  geom_col(position = "fill") +
+  geom_hline(aes(yintercept = z)) +
+  xlab("Race ") +
+  ylab("Proportion") +
+  labs(fill = "Struck by State")
+  ggtitle("Proportions of Jurors Struck by State")
+?theme
+```
+
+## Does the racial composition of a jury relate to the defendant's race?
+
+  From table1 and table2, we can see that the overall “average”(s) levels of racial compositions for White jurors are way higher than the Black jurors when the defendant’s race is Black and when the trial verdict is “Guilty on at least one offense” and the defendant’s race is Black. 
+  In fact, from table1 we can see that when the defendant’s race is Black regardless of the trial verdict, the average racial composition percentage of Black jurors is 23.78% as opposed to 48.43% for White jurors. With that data, we still see that about 19.67% of all trials with a Black defendant has a lower percentage of Black jurors in the jury, while for White jurors this number is only about 6.89%. On the other hand, the percentage of trials with a Black defendant that has a higher percentage of White jurors in the jury than average is 45.57% but for Black jurors only 34.10%. 
+  When the verdict trial is “Guilty on at least one offense” and the defendant’s race is Black, we see that the average racial composition for Black jurors and White jurors is 22.27% and 46.24% correspondingly in table2. From there, we still see that 18.53% of all trials with lower Black jurors compositions than the average level, and that number is only 5.79% for white jurors. For White jurors, we see that about 44.79% of all trials with a higher percentage than the average, while for Black jurors we see merely 33.59%. 
+Overall, it’s hard to say whether these percentage differences are statistically significant or not just from looking at the summary tables. But we can see that there were indeed some partial decisions made against potential jurors based on their race on whether to seat them, when the defendant is Black. This racial composition partiality might even affect the final trial verdict. 
+  When the verdict is guilty and the defendant is Black people, we see that there’s even a lower average Black jurors (22.27%) compared to the 23.78%, which is the average percentage of Black jurors in all trials with a Black defendant regardless of the trial verdict. It’s possible that the trial verdict is associated with the racial compositions of juries, but after accounting for the defendant’s race, this association might not be very significant. 
+	You might have noticed that the “lower_than_average” and “higher_than_average” data for each race is not summing up to 1 in the tables. The reason for that is, for the “average” data, we polled all trials regardless of the defendant’s race and regardless of the trial verdict, but when we calculate the “lower” or “higher” data, we filtered out the trials based on the defendant’s race and the trial verdict depending on the question.
+
+```{r echo=FALSE, out.width="50%"}
+# Question 3
+#summary tables
+table1
+table2
+wide_table1<-table1 %>% pivot_longer(cols=c(average, lower_than_ave, higher_than_ave), names_to = "type", values_to = "data")
+wide_table1$data<-as.numeric(wide_table1$data)
+wide_table2<-table2 %>% pivot_longer(cols=c(average2, lower_than_ave2, higher_than_ave2), names_to = "type", values_to = "data")
+wide_table2$data<-as.numeric(wide_table2$data)
+#EDA
+```
+
+```{r figures-side-2, fig.show="hold", out.width="50%", echo = FALSE}
+ggplot(data = wide_table1, mapping = aes(x = race, y=data, fill=type)) +
+geom_bar( stat="identity", position="dodge")+
+  ggtitle("Racial composition when the defendant is Black")+
+  ylab("Percentage") +
+  xlab("Race")
+ggplot(data = wide_table2, mapping = aes(x = race2, y=data, fill=type)) +
+geom_bar( stat="identity", position="dodge")+
+   ggtitle("Racial composition when the defendant is Black and the verdict is guilty")+
+  ylab("Percentage") +
+  xlab("Race")
+```
+
+## Does the racial composition of a jury relate to the trial verdict?
+
+  In the end, we saw very interesting results to our question of whether racial composition of the jury affected the verdict of the trial. As you can see from the boxplot below, the trials where the defendant was acquitted on all counts are the least diverse juries. On the other hand, mistrials had high ethnic ratings. Trials with the verdict being guilty on at least one offense had the largest ethnic spread, yet still had a higher median ethnic rating than trials where the defendant was acquitted. Therefore, we could hypothesize that a more racially diverse jury, means a more lenient verdict. However, this would have to be investigated further to prove
+  
+```{r echo=FALSE, out.width="50%"}
+# Question 4
+ggplot(data = Trials_3) +
+  geom_boxplot(mapping = aes(x = verdict, y = ethnic_rat)) +
+  ggtitle("Ethnic Ratings by Result of Trial") +
+  xlab("Verdict of Trial") +
+  ylab("Diversity of Jury")
+```
+
+## Limitations: 
+
+For the graph “Does the race of jurors affect their probability of being struck?” explaining the distribution of jurors being struck grouped by race, we only included the situation when potential jurors were “struck by state”. In the “jurors” data set, there are also other causes for potential jurors to be struck including “Struck by the defense”, “Struck for cause” ,and “Struck without notation”. We could add them in as well to improve the graph in the future.
+
+## Appendix
+
+
+```{r out.width="50%"}
+#View(jurors)
+#View(trials)
+#View(dire_answers)
+joint<-inner_join (jurors, trials, by=c("trial__id"="id"))
+#distribution of defendents and jurors
+#bar graph
+ggplot(data = jurors, aes(x = race)) +
+  geom_bar()
+ggplot(data = trials, aes(x = defendant_race)) +
+  geom_bar()
+#summary stats
+#distribution of "struck" categories 
+#stacked bargraph
+ggplot(data = jurors, aes(x = race, fill = struck_by)) +
+  geom_bar()
+#chances of being struck by state (population stats)
+test <- jurors %>%
+  mutate(state = struck_by == "Struck by the state") %>%
+  group_by(state) %>%
+  summarize(total = n())
+ggplot(data = test, aes(x = state, y = total)) +
+  geom_col()
+#by race, chance of getting struck by state
+#stacke bar graph
+test_3 <- jurors %>%
+  mutate(state = struck_by == "Struck by the state") %>%
+  group_by(race, state) %>%
+  summarize(total = n()) %>% filter(!race=="Asian",!race=="Latino")
+ggplot(data = test_3, aes(x = race, y = total, fill = state)) +
+  geom_col(position = "fill") 
+#the chance of being struck in the population 
+z <- 1852/13022
+ggplot(data = test_3, aes(x = race, y = total, fill = state)) +
+  geom_col(position = "fill") +
+  geom_hline(aes(yintercept = z))
+#defendent race
+ggplot(data = trials, aes(x = defendant_race)) +
+  geom_bar()
+```
+
+```{r out.width="50%"}
+#join tables
+joint<-inner_join (jurors, trials, by=c("trial__id"="id"))
+#summary stats on race distribution for each trial(filter the chosen jurors)
+try1<-joint %>% 
+  filter(struck_by=="Juror chosen to serve on jury"|struck_by=="Juror not struck"|struck_by=="Juror chosen as alternate"|struck_by=="Juror excused/absent") %>% 
+  group_by(trial__id) %>% 
+  mutate(race_tot=n()) 
+#struck type
+joint %>% group_by(struck_by) %>% summarise(ct=n())
+try2<-try1 %>% 
+  filter(struck_by=="Juror chosen to serve on jury"|struck_by=="Juror not struck"|struck_by=="Juror chosen as alternate"|struck_by=="Juror excused/absent") %>% 
+  group_by(trial__id,race) %>% 
+  summarise(race_ct=n(), perc=n()/race_tot) 
+  
+try3<-try2 %>% group_by(trial__id) %>% unique()
+try3
+#defendants racial distribution 
+trials %>% select(id, defendant_race) %>% 
+  ggplot()+geom_histogram(aes(x=defendant_race), stat="count")
+#defendants' race added into the racial distribution per trial df
+def_race<-trials %>% select(id, defendant_race)
+joint_def<-inner_join(try3, def_race, by=c("trial__id"="id"))
+joint_def
+#average jurors' racial distribution data
+tot<-joint %>% filter(struck_by=="Juror chosen to serve on jury"|struck_by=="Juror not struck"|struck_by=="Juror chosen as alternate"|struck_by=="Juror excused/absent")
+nrow(tot)
+ave1<-joint %>% filter(struck_by=="Juror chosen to serve on jury"|struck_by=="Juror not struck"|struck_by=="Juror chosen as alternate"|struck_by=="Juror excused/absent") %>%
+  group_by(race) %>% 
+  summarise(tot=n(), perc=as.double(tot/7817))
+ave1
+#black ratio
+1859/7817
+#white ratio
+3786/7817
+#Black ratio lower? 
+#Results: There's 13% among all trials with a lower percentage of Black jurors compared to the average level when the defendant is Black people.
+b_ratio_lower<-joint_def %>%  filter(perc<0.2378, defendant_race=="Black", race=="Black") 
+b_ratio_lower
+nrow(b_ratio_lower)/nrow(trials)
+#White lower?
+w_ratio_lower<-joint_def %>%  filter(perc<0.4843, defendant_race=="Black", race=="White") 
+w_ratio_lower
+nrow(w_ratio_lower)/nrow(trials)
+#Black higher?
+b_ratio_higher<-joint_def %>%  filter(perc>0.2378, defendant_race=="Black", race=="Black") 
+b_ratio_higher
+nrow(b_ratio_higher)/nrow(trials)
+#White ratio higher? 
+#Results: There's 48.9% among all trials with a higher percentage of White jurors compared to the average level when the defendant is Black people.
+w_ratio_higher<-joint_def %>%  filter(perc>0.4843, defendant_race=="Black", race=="White") 
+nrow(w_ratio_higher)/nrow(trials)
+#table summary
+average<-c("0.2378", "0.4843")
+race<-c("Black", "White")
+lower_than_ave<-c("0.1967", "0.0689 ")
+higher_than_ave<-c(" 0.3410", "0.4557")
+table1<-data.frame(race, average, lower_than_ave, higher_than_ave) 
+table1<-table1 %>% mutate( defendant_race ="Black")
+table1
+```
+
+
+
+```{r out.width="50%"}
+trials %>% group_by(verdict) %>% 
+  summarise(ct=n())
+guilty<-259
+verd<-trials %>% filter(verdict=="Guilty on at least one offense") %>% 
+  select(id, verdict)
+verd
+verd_case<-semi_join( joint_def,verd, by=c("trial__id"="id"))
+verd_case
+#average jurors' racial distribution data when the verdict is guilty
+sum(verd_case$race_ct)
+ave2<-verd_case %>% group_by(race) %>% 
+  summarise(tot=sum(race_ct), perc=as.double(tot/6614))
+ave2
+1473/6614
+3058/6614
+#Black ratio lower? 
+#Results: There's 13% among all trials with a lower percentage of Black jurors compared to the average level when the defendant is Black people.
+b_ratio_lower2<-verd_case %>%  filter(perc<0.2227, defendant_race=="Black", race=="Black") 
+b_ratio_lower2
+nrow(b_ratio_lower2)/guilty
+#White lower?
+w_ratio_lower2<-verd_case %>%  filter(perc<0.4624, defendant_race=="Black", race=="White") 
+w_ratio_lower2
+nrow(w_ratio_lower2)/guilty
+#Black higher?
+b_ratio_higher2<-verd_case %>%  filter(perc>0.2227, defendant_race=="Black", race=="Black") 
+b_ratio_higher2
+nrow(b_ratio_higher2)/guilty
+#White ratio higher? 
+#Results: There's 48.9% among all trials with a higher percentage of White jurors compared to the average level when the defendant is Black people.
+w_ratio_higher2<-verd_case %>%  filter(perc>0.4624, defendant_race=="Black", race=="White") 
+nrow(w_ratio_higher2)/guilty
+#table summary
+average2<-c("0.2227", "0.4624")
+race2<-c("Black", "White")
+lower_than_ave2<-c("0.1853", "0.0579")
+higher_than_ave2<-c("0.3359", "0.4479")
+table2<-data.frame(race2, average2, lower_than_ave2, higher_than_ave2) 
+table2<-table2 %>% mutate( verdict ="Guilty on at least one offense", defendant_race ="Black")
+# Question 4
+Master <- jurors %>% 
+  inner_join(trials, by=c("trial__id"="id")) %>%
+  group_by(race)
+Master_2 <- Master %>%
+  filter(struck_by == "Juror not struck") %>%
+  group_by(trial__id) %>%
+  mutate(ethnic = !race=="White") %>%
+  summarize(ethnic_rat = mean(ethnic))
+Trials_3 <- trials %>%
+  inner_join(Master_2, by=c("id"="trial__id"))
+Trial_Table <- Trials_3 %>%
+  group_by(verdict) %>%
+  summarize(ethnic_rat = mean(ethnic_rat))
+# Question 1
+year_num <- str_split_fixed(trials$cause_number, "-", 2) # This splits out cause_number variable into a matrix with year and the other associated number as variables.
+year <- year_num[,1] # Here we further subset this to select only the year from year_num.
+Trials_1 <- trials %>% # this piping adds this year element into our data in a more precise manner.
+  mutate(year = year) %>%
+  mutate(strike = state_strikes == TRUE | defense_strikes == TRUE ) # this just takes into account if there was a strike no matter the type.
+Trials_2 <- Trials_1 %>% # This last set of piping summarizes our data so we can clearly see how many strikes happened per year in this set.
+  group_by(year, strike) %>%
+  summarize(total = sum(strike)) %>%
+  filter(strike == TRUE)
+# Question 5
+Jurors_2 <- jurors %>% 
+  mutate(state = struck_by == "Struck by the state") %>%
+  group_by(race, state) %>%
+  summarize(total = n()) # This data creates a new variable struck_by to look if each Juror in the APM_juror set was struck by the state. We then group these entries by race to see the likliehood that each race has 
+Jurors_3 <- Jurors_2 %>%
+  filter(!race=="Asian",!race=="Latino") # takes out races that have limited data entries
+  
+z <- 1852/13022
+```
