@@ -1,0 +1,197 @@
+\begin{thebibliography}{xx}
+
+\harvarditem[Bates et~al.]{Bates, Chambers \harvardand\
+  Hastie}{1992}{bates1992statistical}
+Bates, D., Chambers, J. \harvardand\ Hastie, T.  \harvardyearleft
+  1992\harvardyearright , {\em Statistical models in S}.
+
+\harvarditem{Bates \harvardand\ Pinheiro}{1998}{bates1998computational}
+Bates, D.~M. \harvardand\ Pinheiro, J.~C.  \harvardyearleft
+  1998\harvardyearright , `Computational methods for multilevel modelling',
+  {\em University of Wisconsin, Madison, WI} pp.~1--29.
+
+\harvarditem[Bates et~al.]{Bates, Machler, Bolker \harvardand\
+  Walker}{2015}{Bates2015}
+Bates, D., Machler, M., Bolker, B. \harvardand\ Walker, S.  \harvardyearleft
+  2015\harvardyearright , `Fitting linear mixed-effects models using lme4',
+  {\em Journal of Statistical Software} {\bf 67}(1).
+
+\harvarditem[Becker et~al.]{Becker, Kl{\"o}{\ss}ner \harvardand\
+  Becker}{2021}{becker2021}
+Becker, M., Kl{\"o}{\ss}ner, S. \harvardand\ Becker, M.~M.  \harvardyearleft
+  2021\harvardyearright , `Package ‘pearsonds’', {\em Aust. NZJ Stat} {\bf
+  50}(2),~199--205.
+
+\harvarditem{Bolker}{2008}{bolker2008ecological}
+Bolker, B.~M.  \harvardyearleft 2008\harvardyearright , {\em Ecological models
+  and data in R}, Princeton University Press.
+
+\harvarditem{Breusch \harvardand\ Pagan}{1979}{breusch1979simple}
+Breusch, T.~S. \harvardand\ Pagan, A.~R.  \harvardyearleft
+  1979\harvardyearright , `A simple test for heteroscedasticity and random
+  coefficient variation', {\em Econometrica: Journal of the econometric
+  society} pp.~1287--1294.
+
+\harvarditem[Cheng et~al.]{Cheng, Edwards, Maldonado-Molina, Komro \harvardand\
+  Muller}{2010}{Cheng2010-ec}
+Cheng, J., Edwards, L.~J., Maldonado-Molina, M.~M., Komro, K.~A. \harvardand\
+  Muller, K.~E.  \harvardyearleft 2010\harvardyearright , `Real longitudinal
+  data analysis for real people: building a good enough mixed model', {\em
+  Statistics in medicine} {\bf 29}(4),~504--520.
+
+\harvarditem{Gelman \harvardand\ Hill}{2006}{Gelman_hill_2006}
+Gelman, A. \harvardand\ Hill, J.  \harvardyearleft 2006\harvardyearright , {\em
+  Model checking and comparison}, Analytical Methods for Social Research,
+  Cambridge University Press.
+
+\harvarditem[Gilmour et~al.]{Gilmour, Thompson \harvardand\
+  Cullis}{1995}{gilmour1995average}
+Gilmour, A.~R., Thompson, R. \harvardand\ Cullis, B.~R.  \harvardyearleft
+  1995\harvardyearright , `Average information reml: an efficient algorithm for
+  variance parameter estimation in linear mixed models', {\em Biometrics}
+  pp.~1440--1450.
+
+\harvarditem[Gurka et~al.]{Gurka, Edwards \harvardand\
+  Muller}{2011}{gurka2011avoiding}
+Gurka, M.~J., Edwards, L.~J. \harvardand\ Muller, K.~E.  \harvardyearleft
+  2011\harvardyearright , `Avoiding bias in mixed model inference for fixed
+  effects', {\em Statistics in medicine} {\bf 30}(22),~2696--2707.
+
+\harvarditem{Haslett \harvardand\ Hayes}{1998}{haslett1998residuals}
+Haslett, J. \harvardand\ Hayes, K.  \harvardyearleft 1998\harvardyearright ,
+  `Residuals for the linear model with general covariance structure', {\em
+  Journal of the Royal Statistical Society: Series B (Statistical Methodology)}
+  {\bf 60}(1),~201--215.
+
+\harvarditem{Heagerty \harvardand\ Kurland}{2001}{heagerty2001misspecified}
+Heagerty, P.~J. \harvardand\ Kurland, B.~F.  \harvardyearleft
+  2001\harvardyearright , `Misspecified maximum likelihood estimates and
+  generalised linear mixed models', {\em Biometrika} {\bf 88}(4),~973--985.
+
+\harvarditem[Houseman et~al.]{Houseman, Ryan \harvardand\
+  Coull}{2004}{houseman2004cholesky}
+Houseman, E.~A., Ryan, L.~M. \harvardand\ Coull, B.~A.  \harvardyearleft
+  2004\harvardyearright , `Cholesky residuals for assessing normal errors in a
+  linear model with correlated outcomes', {\em Journal of the American
+  Statistical Association} {\bf 99}(466),~383--394.
+
+\harvarditem[Hui et~al.]{Hui, M{\"u}ller \harvardand\ Welsh}{2021}{Hui2021}
+Hui, F. K.~C., M{\"u}ller, S. \harvardand\ Welsh, A.~H.  \harvardyearleft
+  2021\harvardyearright , `Random effects misspecification can have severe
+  consequences for random effects inference in linear mixed models', {\em
+  International Statistical Review} {\bf 89}(1),~186--206.
+
+\harvarditem{Jiang}{1998}{jiang1998asymptotic}
+Jiang, J.  \harvardyearleft 1998\harvardyearright , `Asymptotic properties of
+  the empirical blup and blue in mixed linear models', {\em Statistica Sinica}
+  pp.~861--885.
+
+\harvarditem{Koller}{2016}{koller2016robustlmm}
+Koller, M.  \harvardyearleft 2016\harvardyearright , `robustlmm: an r package
+  for robust estimation of linear mixed-effects models', {\em Journal of
+  statistical software} {\bf 75}(1),~1--24.
+
+\harvarditem{Laird \harvardand\ Ware}{1982}{laird1982random}
+Laird, N.~M. \harvardand\ Ware, J.~H.  \harvardyearleft 1982\harvardyearright ,
+  `Random-effects models for longitudinal data', {\em Biometrics} pp.~963--974.
+
+\harvarditem{Loy \harvardand\ Hofmann}{2014}{loy2014hlmdiag}
+Loy, A. \harvardand\ Hofmann, H.  \harvardyearleft 2014\harvardyearright ,
+  `Hlmdiag: A suite of diagnostics for hierarchical linear models in r', {\em
+  Journal of Statistical Software} {\bf 56}(1),~1--28.
+
+\harvarditem{Loy \harvardand\ Hofmann}{2015}{Loy2015-vl}
+Loy, A. \harvardand\ Hofmann, H.  \harvardyearleft 2015\harvardyearright , `Are
+  you normal? the problem of confounded residual structures in hierarchical
+  linear models', {\em Journal of computational and graphical statistics} {\bf
+  24}(4),~1191--1209.
+
+\harvarditem[Loy et~al.]{Loy, Hofmann \harvardand\ Cook}{2017}{Loy2017-fo}
+Loy, A., Hofmann, H. \harvardand\ Cook, D.  \harvardyearleft
+  2017\harvardyearright , `Model choice and diagnostics for linear
+  {Mixed-Effects} models using statistics on street corners', {\em Journal of
+  computational and graphical statistics} {\bf 26}(3),~478--492.
+
+\harvarditem{Mahalanobis}{1936}{mahalanobis1936generalized}
+Mahalanobis, P.~C.  \harvardyearleft 1936\harvardyearright , On the generalized
+  distance in statistics, National Institute of Science of India.
+
+\harvarditem{McCulloch}{1997}{mcculloch1997maximum}
+McCulloch, C.~E.  \harvardyearleft 1997\harvardyearright , `Maximum likelihood
+  algorithms for generalized linear mixed models', {\em Journal of the American
+  statistical Association} {\bf 92}(437),~162--170.
+
+\harvarditem{McLachlan}{1999}{mclachlan1999mahalanobis}
+McLachlan, G.~J.  \harvardyearleft 1999\harvardyearright , `Mahalanobis
+  distance', {\em Resonance} {\bf 4}(6),~20--26.
+
+\harvarditem{Morrell \harvardand\ Brant}{2000}{Morrell2000-ut}
+Morrell, C.~H. \harvardand\ Brant, L.~J.  \harvardyearleft
+  2000\harvardyearright , `Lines in random effects plots from the linear
+  {Mixed-Effects} model', {\em The American statistician} {\bf 54}(1),~1--4.
+
+\harvarditem{Pinheiro \harvardand\ Bates}{2000}{pinheiro2000linear}
+Pinheiro, J.~C. \harvardand\ Bates, D.~M.  \harvardyearleft
+  2000\harvardyearright , `Linear mixed-effects models: basic concepts and
+  examples', {\em Mixed-effects models in S and S-Plus} pp.~3--56.
+
+\harvarditem{Proust \harvardand\ Jacqmin-Gadda}{2005}{proust2005estimation}
+Proust, C. \harvardand\ Jacqmin-Gadda, H.  \harvardyearleft
+  2005\harvardyearright , `Estimation of linear mixed models with a mixture of
+  distribution for the random effects', {\em Computer methods and programs in
+  biomedicine} {\bf 78}(2),~165--173.
+
+\harvarditem{R~Core~Team}{2021}{Rteam}
+R~Core~Team, .  \harvardyearleft 2021\harvardyearright , `R: A language and
+  environment for statistical computing'.
+
+\harvarditem{Raudenbush \harvardand\ Bryk}{2002}{raudenbush2002hierarchical}
+Raudenbush, S.~W. \harvardand\ Bryk, A.~S.  \harvardyearleft
+  2002\harvardyearright , {\em Hierarchical linear models: Applications and
+  data analysis methods}, Vol.~1, sage.
+
+\harvarditem{Roback \harvardand\ Legler}{2021}{Roback2021}
+Roback, P. \harvardand\ Legler, J.  \harvardyearleft 2021\harvardyearright ,
+  {\em {Beyond Multiple Linear Regression}}.
+
+\harvarditem{Santos \harvardand\ Singer}{2007}{santos2007residual}
+Santos, J. \harvardand\ Singer, J.  \harvardyearleft 2007\harvardyearright ,
+  `Residual analysis for linear mixed models', {\em Biometrical Journal:
+  Journal of Mathematical Methods in Biosciences} {\bf 49}(6),~863--875.
+
+\harvarditem[Schielzeth et~al.]{Schielzeth, Dingemanse, Nakagawa, Westneat,
+  Allegue, Teplitsky, R{\'e}ale, Dochtermann, Garamszegi \harvardand\
+  Araya-Ajoy}{2020}{Schielzeth2020-gp}
+Schielzeth, H., Dingemanse, N.~J., Nakagawa, S., Westneat, D.~F., Allegue, H.,
+  Teplitsky, C., R{\'e}ale, D., Dochtermann, N.~A., Garamszegi, L.~Z.
+  \harvardand\ Araya-Ajoy, Y.~G.  \harvardyearleft 2020\harvardyearright ,
+  `Robustness of linear mixed-effects models to violations of distributional
+  assumptions', {\em Methods in ecology and evolution} {\bf 11}(9),~1141--1152.
+
+\harvarditem{Sch{\"u}tzenmeister \harvardand\
+  Piepho}{2012}{Schutzenmeister2012}
+Sch{\"u}tzenmeister, A. \harvardand\ Piepho, H.-P.  \harvardyearleft
+  2012\harvardyearright , `Residual analysis of linear mixed models using a
+  simulation approach', {\em Computational statistics \& data analysis} {\bf
+  56}(6),~1405--1416.
+
+\harvarditem[Singer et~al.]{Singer, Rocha \harvardand\
+  Nobre}{2017}{Singer2017-sd}
+Singer, J.~M., Rocha, F. M.~M. \harvardand\ Nobre, J.~S.  \harvardyearleft
+  2017\harvardyearright , `Graphical tools for detecting departures from linear
+  mixed model assumptions and some remedial measures', {\em International
+  statistical review} {\bf 85}(2),~290--324.
+
+\harvarditem{Snijders \harvardand\ Berkhof}{2008}{Snijders2008-dm}
+Snijders, T. A.~B. \harvardand\ Berkhof, J.  \harvardyearleft
+  2008\harvardyearright , Diagnostic checks for multilevel models, {\em in}
+  J.~d. Leeuw \harvardand\ E.~Meijer, eds, `Handbook of Multilevel Analysis',
+  Springer New York, New York, NY, pp.~141--175.
+
+\harvarditem{Verbeke \harvardand\ Lesaffre}{1996}{verbeke1996linear}
+Verbeke, G. \harvardand\ Lesaffre, E.  \harvardyearleft 1996\harvardyearright ,
+  `A linear mixed-effects model with heterogeneity in the random-effects
+  population', {\em Journal of the American Statistical Association} {\bf
+  91}(433),~217--221.
+
+\end{thebibliography}
