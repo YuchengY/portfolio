@@ -1,0 +1,769 @@
+---
+title: "Error Term Simulation"
+author: "Muyang Shi"
+date: "10/22/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loading-data-and-library}
+library(lme4)
+library(HLMdiag)
+library(MASS)
+library(dplyr)
+radon <- HLMdiag::radon
+library(lmtest)
+```
+
+### Utility
+```{r bptest}
+bp <- function (resid,fitted){
+    .sq_resid <- resid^2 # squared residual
+    
+    # Regression e^2 on the fitted values
+    .mod <-lm(.sq_resid ~ fitted)
+    
+    # Regression sum of squares
+    .SSR <- sum((predict(.mod) - mean(.sq_resid))^2) # anova(.mod)[1,2]
+    # Error Sum of Squares
+    .SSE <- sum(.sq_resid) # anova(.mod)[2,2]
+    # n
+    .n <- length(resid)
+    # test statistics
+    .x <- (.SSR/2) / (.SSE/.n)^2
+    
+    .p <- pchisq(.x,df=1)
+    .p <- ifelse(.p>=0.5, 1-.p,.p)
+    return(c(stats=.x,p_val=.p))
+}
+```
+
+```{r brown-forsythe-test}
+bf <- function (resid, fitted){
+    .frame <- data.frame(resid=resid,fitted=fitted)
+    # .frame <- .frame[order(.frame$fitted),]
+    .frame$group <- ifelse(.frame$fitted <= median(.frame$fitted),1,2)
+    # Split the data into two pieces
+    .group1 <- .frame[c(which(.frame$group==1)),]
+    .group2 <- .frame[c(which(.frame$group==2)),]
+        
+    # Calculate the medians of each group
+    .med1 <- median(.group1$resid)
+    .med2 <- median(.group2$resid)
+    
+    # Calculate the absolute deviations of the residuals from the median residual within each group
+    .AD1 <- abs(.group1$resid - .med1)
+    .AD2 <- abs(.group2$resid - .med1)
+    ttest <- t.test(.AD1,.AD2,var.equal=TRUE)
+    return(c(stats=ttest$statistic,p_val=ttest$p.value))
+}
+```
+
+```{r brown-forsythe-test-4-bins}
+bf4 <- function (resid, fitted){
+    .frame <- data.frame(resid=resid,fitted=fitted)
+    .quantiles <- quantile(.frame$fitted)
+    .q1 <- .quantiles[2]
+    .med <- .quantiles[3]
+    .q3 <- .quantiles[4]
+    .frame$group <- ifelse(.frame$fitted <= .q1, 1,
+                        ifelse(.frame$fitted <= .med, 2,
+                            ifelse(.frame$fitted <= .q3, 3, 4)))
+
+    # Split the data into four pieces
+    .group1 <- .frame[c(which(.frame$group==1)),]
+    .group2 <- .frame[c(which(.frame$group==2)),]
+    .group3 <- .frame[c(which(.frame$group==3)),]
+    .group4 <- .frame[c(which(.frame$group==4)),]
+
+    .med1 <- median(.group1$resid)
+    .med2 <- median(.group2$resid)
+    .med3 <- median(.group3$resid)
+    .med4 <- median(.group4$resid)
+
+    # absolute deviance
+    .AD1 <- abs(.group1$resid - .med1)
+    .AD2 <- abs(.group2$resid - .med2)
+    .AD3 <- abs(.group3$resid - .med3)
+    .AD4 <- abs(.group4$resid - .med4)
+
+    # Choose the most extreme difference between avg of AD
+
+    .mean1 <- sum(.AD1)/length(.AD1)
+    .mean2 <- sum(.AD2)/length(.AD2)
+    .mean3 <- sum(.AD3)/length(.AD3)
+    .mean4 <- sum(.AD4)/length(.AD4)
+
+    .minADindex <- which.min(c(.mean1,.mean2,.mean3,.mean4))
+    .maxADindex <- which.max(c(.mean1,.mean2,.mean3,.mean4))
+
+    .minAD <- list(.AD1,.AD2,.AD3,.AD4)[[.minADindex]]
+    .maxAD <- list(.AD1,.AD2,.AD3,.AD4)[[.maxADindex]]
+
+    ttest <- t.test(.minAD,.maxAD,var.equal=TRUE)
+    return(c(stats=ttest$statistic,p_val=ttest$p.value))
+}
+```
+
+### Simulation Function(s)
+
+Simulation function that assume multivariate normal covariance between $b_0$ and $b_1$, the random intercept and random slope.
+
+#### Error term normality assumption
+```{r simulation-function-normality}
+sim.hlm <- function(.mod, nsim, e.dsn) {
+    vc <- VarCorr( .mod )
+    D  <- as.matrix( bdiag(vc) )
+    
+    sigma.err <- attr(vc, "sc") # std of the error term
+    
+    n <- getME(.mod,"n") # number of error terms (number of observations)
+    m <- getME(.mod,"q") / nrow(D) # number of random slope or random intercepts
+    
+    ## Simulating error terms
+    if(e.dsn == "norm") {
+    	e  <- rnorm(n = nsim * n, mean = 0, sd = sigma.err)
+    } 
+    if(e.dsn == "t") {
+    	e  <- (sigma.err / sqrt(3)) * rt(n = nsim * n, df = 3)
+    }
+    if(e.dsn == "exp") {
+    	e  <- sigma.err * ( rexp(n = nsim * n) - 1 )
+    }
+    e <- matrix(e, nc = nsim)
+    
+    ## Simulating random intercept
+    b.sim <- mvrnorm(n = nsim * m, mu = c(0, 0), Sigma = D) # allowing for covariance between b0 and b1
+    
+    b0 <- matrix(b.sim[,1], nc = nsim)
+    b1 <- matrix(b.sim[,2], nc = nsim)
+    
+    ## Generating y
+    b <- rbind(b0, b1)
+    y <- getME(.mod, "X") %*% fixef(.mod) + getME(.mod, "Z") %*% b + e
+    
+    y.df <- as.data.frame( as.matrix( y) )
+    colnames(y.df) <- paste("sim_", 1:ncol(y.df), sep = "")
+    
+    return( y.df )
+}
+```
+
+#### Error Term Constant Variance Assumption
+```{r simulation-function-constant-variance}
+sim.hlmvar <- function(.mod, nsim, evar.dsn) {
+    vc <- VarCorr( .mod )
+    D  <- as.matrix( bdiag(vc) )
+    
+    sigma.err <- attr(vc, "sc") # std of the error term
+    
+    n <- getME(.mod,"n") # number of error terms (number of observations)
+    m <- getME(.mod,"q") / nrow(D) # number of random slope or random intercepts
+    
+    ## Simulating random intercept and slope
+    b.sim <- mvrnorm(n = nsim * m, mu = c(0, 0), Sigma = D) # allowing for covariance between b0 and b1
+    
+    b0 <- matrix(b.sim[,1], nc = nsim)
+    b1 <- matrix(b.sim[,2], nc = nsim)
+    
+    ## Generating y's
+    b <- rbind(b0, b1)
+    y <- getME(.mod, "X") %*% fixef(.mod) + getME(.mod, "Z") %*% b # True y without error term
+    y_backup <- y # Save the true y value
+
+    ## Simulating error terms
+    ## And append the simulated error terms to get the simulated y values
+    if(evar.dsn == "-") { # constant variance
+    	e  <- rnorm(n = nsim * n, mean = 0, sd = sigma.err)
+    	y <- y + e
+    } 
+    if(evar.dsn == ">") { # big variance on the left, and small variance on the right
+    	for(i in 1:ncol(y)){
+    	    # Preparation work, split true y's into four bins
+    	    y_col <- sort(y[,i]) # Sort the true y's
+    	    total_num <- length(y_col)
+    	    bin_width <- round(total_num/4)
+    	    bin_1 <- y_col[c(1:bin_width)]
+    	    bin_2 <- y_col[c((bin_width+1):(2*bin_width))]
+    	    bin_3 <- y_col[c((2*bin_width+1):(3*bin_width))]
+    	    bin_4 <- y_col[c((3*bin_width+1):total_num)]
+    	    
+    	    # Simulating non-constant variance error terms
+    	    e_1 <- rnorm(n = bin_width, mean = 0, sd = sqrt(7*sigma.err^2/16))
+    	    e_2 <- rnorm(n = bin_width, mean = 0, sd = sqrt(5*sigma.err^2/16))
+    	    e_3 <- rnorm(n = bin_width, mean = 0, sd = sqrt(3*sigma.err^2/16))
+    	    e_4 <- rnorm(n = length(bin_4), mean = 0, sd = sqrt(1*sigma.err^2/16))
+    	    
+    	    # Adding simulated error term to the true value
+    	    ysim_bin_1 <- bin_1 + e_1
+    	    ysim_bin_2 <- bin_2 + e_2
+    	    ysim_bin_3 <- bin_3 + e_3
+    	    ysim_bin_4 <- bin_4 + e_4
+    	    # Join the binned simulated y's back together
+    	    y_simulated_col <- c(ysim_bin_1,ysim_bin_2,ysim_bin_3,ysim_bin_4)
+    	    # Update the simulation matrix (column)
+    	    y[,i] <- y_simulated_col
+    	}
+    }
+    if(evar.dsn == "<") { # small variance on the left, and big variance on the right
+    	for(i in 1:ncol(y)){
+    	    # Preparation work, split true y's into four bins
+    	    y_col <- sort(y[,i]) # Sort the true y's
+    	    total_num <- length(y_col)
+    	    bin_width <- round(total_num/4)
+    	    bin_1 <- y_col[c(1:bin_width)]
+    	    bin_2 <- y_col[c((bin_width+1):(2*bin_width))]
+    	    bin_3 <- y_col[c((2*bin_width+1):(3*bin_width))]
+    	    bin_4 <- y_col[c((3*bin_width+1):total_num)]
+    	    
+    	    # Simulating non-constant variance error terms
+    	    e_1 <- rnorm(n = bin_width, mean = 0, sd = sqrt(1*sigma.err^2/16))
+    	    e_2 <- rnorm(n = bin_width, mean = 0, sd = sqrt(3*sigma.err^2/16))
+    	    e_3 <- rnorm(n = bin_width, mean = 0, sd = sqrt(5*sigma.err^2/16))
+    	    e_4 <- rnorm(n = length(bin_4), mean = 0, sd = sqrt(7*sigma.err^2/16))
+    	    
+    	    # Adding simulated error term to the true value
+    	    ysim_bin_1 <- bin_1 + e_1
+    	    ysim_bin_2 <- bin_2 + e_2
+    	    ysim_bin_3 <- bin_3 + e_3
+    	    ysim_bin_4 <- bin_4 + e_4
+    	    # Join the binned simulated y's back together
+    	    y_simulated_col <- c(ysim_bin_1,ysim_bin_2,ysim_bin_3,ysim_bin_4)
+    	    # Update the simulation matrix (column)
+    	    y[,i] <- y_simulated_col
+    	}
+    }
+    if(evar.dsn == "<>"){ # small variance on the end, big variance in the middle
+    	for(i in 1:ncol(y)){
+    	    # Preparation work, split true y's into four bins
+    	    y_col <- sort(y[,i]) # Sort the true y's
+    	    total_num <- length(y_col)
+    	    bin_width <- round(total_num/4)
+    	    bin_1 <- y_col[c(1:bin_width)]
+    	    bin_2 <- y_col[c((bin_width+1):(2*bin_width))]
+    	    bin_3 <- y_col[c((2*bin_width+1):(3*bin_width))]
+    	    bin_4 <- y_col[c((3*bin_width+1):total_num)]
+    	    
+    	    # Simulating non-constant variance error terms
+    	    e_1 <- rnorm(n = bin_width, mean = 0, sd = sqrt(2*sigma.err^2/16))
+    	    e_2 <- rnorm(n = bin_width, mean = 0, sd = sqrt(6*sigma.err^2/16))
+    	    e_3 <- rnorm(n = bin_width, mean = 0, sd = sqrt(6*sigma.err^2/16))
+    	    e_4 <- rnorm(n = length(bin_4), mean = 0, sd = sqrt(2*sigma.err^2/16))
+    	    
+    	    # Adding simulated error term to the true value
+    	    ysim_bin_1 <- bin_1 + e_1
+    	    ysim_bin_2 <- bin_2 + e_2
+    	    ysim_bin_3 <- bin_3 + e_3
+    	    ysim_bin_4 <- bin_4 + e_4
+    	    # Join the binned simulated y's back together
+    	    y_simulated_col <- c(ysim_bin_1,ysim_bin_2,ysim_bin_3,ysim_bin_4)
+    	    # Update the simulation matrix (column)
+    	    y[,i] <- y_simulated_col
+    	}
+    }
+    if(evar.dsn == "><"){
+    	for(i in 1:ncol(y)){
+    	    # Preparation work, split true y's into four bins
+    	    y_col <- sort(y[,i]) # Sort the true y's
+    	    total_num <- length(y_col)
+    	    bin_width <- round(total_num/4)
+    	    bin_1 <- y_col[c(1:bin_width)]
+    	    bin_2 <- y_col[c((bin_width+1):(2*bin_width))]
+    	    bin_3 <- y_col[c((2*bin_width+1):(3*bin_width))]
+    	    bin_4 <- y_col[c((3*bin_width+1):total_num)]
+    	    
+    	    # Simulating non-constant variance error terms
+    	    e_1 <- rnorm(n = bin_width, mean = 0, sd = sqrt(6*sigma.err^2/16))
+    	    e_2 <- rnorm(n = bin_width, mean = 0, sd = sqrt(2*sigma.err^2/16))
+    	    e_3 <- rnorm(n = bin_width, mean = 0, sd = sqrt(2*sigma.err^2/16))
+    	    e_4 <- rnorm(n = length(bin_4), mean = 0, sd = sqrt(6*sigma.err^2/16))
+    	    
+    	    # Adding simulated error term to the true value
+    	    ysim_bin_1 <- bin_1 + e_1
+    	    ysim_bin_2 <- bin_2 + e_2
+    	    ysim_bin_3 <- bin_3 + e_3
+    	    ysim_bin_4 <- bin_4 + e_4
+    	    # Join the binned simulated y's back together
+    	    y_simulated_col <- c(ysim_bin_1,ysim_bin_2,ysim_bin_3,ysim_bin_4)
+    	    # Update the simulation matrix (column)
+    	    y[,i] <- y_simulated_col
+    	}
+    }
+    
+    y.df <- as.data.frame( as.matrix( y) )
+    colnames(y.df) <- paste("sim_", 1:ncol(y.df), sep = "")
+    
+    return( y.df )
+}
+```
+
+#### Error Term Linearity Assumption
+```{r simulation-function-linearity}
+sim.hlmlin <- function(.mod, nsim, rel.dsn) {
+    vc <- VarCorr( .mod )
+    D  <- as.matrix( bdiag(vc) )
+    
+    sigma.err <- attr(vc, "sc") # std of the error term
+    
+    n <- getME(.mod,"n") # number of error terms (number of observations)
+    m <- getME(.mod,"q") / nrow(D) # number of random slope or random intercepts
+    
+    ## Simulating error terms
+    e <- rnorm(n = nsim*n, mean = 0, sd = sigma.err)
+    e <- matrix(e, nc = nsim)
+
+    ## Simulating random intercept
+    b.sim <- mvrnorm(n = nsim * m, mu = c(0, 0), Sigma = D) # allowing for covariance between b0 and b1
+    
+    b0 <- matrix(b.sim[,1], nc = nsim)
+    b1 <- matrix(b.sim[,2], nc = nsim)
+    
+    ## Modifying linearity relationship
+    X <- getME(.mod, "X")
+    if(rel.dsn == "linear") {
+        # Do nothing
+    } 
+    if(rel.dsn == "sqrt") {
+        signs <- sign(X[,"uranium"])
+        values <- abs(X[,"uranium"])
+        X[,"uranium"] <- signs*sqrt(values)
+    }
+    if(rel.dsn == "sq") {
+        signs <- sign(X[,"uranium"])
+        values <- abs(X[,"uranium"])
+        X[,"uranium"] <- signs*(values^2)
+    }
+    if(rel.dsn == "log"){
+        signs <- sign(X[,"uranium"])
+        values <- abs(X[,"uranium"])
+        X[,"uranium"] <- signs*(log(values))
+    }
+    
+    ## Generating y
+    b <- rbind(b0, b1)
+    y <- X %*% fixef(.mod) + getME(.mod, "Z") %*% b + e
+    
+    y.df <- as.data.frame( as.matrix( y) )
+    colnames(y.df) <- paste("sim_", 1:ncol(y.df), sep = "")
+    
+    return( y.df )
+}
+```
+
+### Simulations
+
+```{r simulation-setup}
+## fitted model
+(fm <- lmer(log.radon ~ basement + uranium + (basement | county), data = radon))
+
+# (fm2 <- lmer(log.radon ~ basement + uranium + (1 | county) + (0 + basement | county), data = radon))
+
+## Distributional settings
+e.dsn <- c("norm", "t", "exp") # Normality Assumption
+
+evar.dsn <- c("-",">","<","<>","><") # Constant Variance Assumption
+
+rel.dsn <- c("linear","sqrt","sq","log") # Linearity Assumption
+```
+
+#### Simulation on non-normality
+```{r simulaion-normality}
+## Set seed and warning handler
+set.seed(7231985)
+options(warn = 2) # turns warnings into errors
+
+## Simulating
+for(i in seq_along(e.dsn)){
+	# Simulate
+	sim.fm <- sim.hlm( fm, nsim = 5000, e.dsn = e.dsn[i])
+                   	   
+	# Excluding those simulations with convergence issues 
+	# and replacing them with new simulations
+
+	repeat{
+  		sim.models <- lapply(sim.fm, function(x) try(refit(object = fm, newresp = x)))
+  
+  		conv.issues <- which(sapply(sim.models, function(x) class(x) == "try-error"))
+  
+  		if(length(conv.issues) == 0) break
+  
+  		# remove simulations with convergence issues
+  		sim.fm <- sim.fm[,-conv.issues]
+  
+  		if(length(sim.fm) == 5000) break
+  
+  		# Additional simulations to achieve correct number of simulations
+  		sim.fm <- cbind(sim.fm, sim.hlm(fm, nsim = length(conv.issues), e.dsn = e.dsn[i]))
+	}
+	saveRDS(sim.models, paste("simulated_models/", e.dsn[i], "_models.RDS", sep = ""))
+}
+```
+
+#### Simulation on non-constant variance
+```{r simulation-constant-variance}
+## Set seed and warning handler
+set.seed(7231985)
+options(warn = 2) # turns warnings into errors
+
+## Simulating
+for(i in seq_along(evar.dsn)){
+	# Simulate
+	sim.fm <- sim.hlmvar( fm, nsim = 5000, evar.dsn = evar.dsn[i])
+                   	   
+	# Excluding those simulations with convergence issues 
+	# and replacing them with new simulations
+
+	repeat{
+  		sim.models <- lapply(sim.fm, function(x) try(refit(object = fm, newresp = x)))
+  
+  		conv.issues <- which(sapply(sim.models, function(x) class(x) == "try-error"))
+  
+  		if(length(conv.issues) == 0) break
+  
+  		# remove simulations with convergence issues
+  		sim.fm <- sim.fm[,-conv.issues]
+  
+  		if(length(sim.fm) == 5000) break
+  
+  		# Additional simulations to achieve correct number of simulations
+  		sim.fm <- cbind(sim.fm, sim.hlmvar(fm, nsim = length(conv.issues), evar.dsn = evar.dsn[i]))
+	}
+	saveRDS(sim.models, paste("simulated_models/", evar.dsn[i], "_models.RDS", sep = ""))
+}
+```
+
+#### Simulation on non-linearity
+```{r simulation-linearity}
+## Set seed and warning handler
+set.seed(7231985)
+options(warn = 2) # turns warnings into errors
+
+## Simulating
+for(i in seq_along(rel.dsn)){
+	# Simulate
+	sim.fm <- sim.hlmlin( fm, nsim = 5000, rel.dsn = rel.dsn[i])
+                   	   
+	# Excluding those simulations with convergence issues 
+	# and replacing them with new simulations
+
+	repeat{
+  		sim.models <- lapply(sim.fm, function(x) try(refit(object = fm, newresp = x)))
+  
+  		conv.issues <- which(sapply(sim.models, function(x) class(x) == "try-error"))
+  
+  		if(length(conv.issues) == 0) break
+  
+  		# remove simulations with convergence issues
+  		sim.fm <- sim.fm[,-conv.issues]
+  
+  		if(length(sim.fm) == 5000) break
+  
+  		# Additional simulations to achieve correct number of simulations
+  		sim.fm <- cbind(sim.fm, sim.hlmvar(fm, nsim = length(conv.issues), rel.dsn = rel.dsn[i]))
+	}
+	saveRDS(sim.models, paste("simulated_models/", rel.dsn[i], "_models.RDS", sep = ""))
+}
+```
+### Analysis
+
+#### Normality Assumption
+```{r some-scratch-work}
+# exp1 <- `exp_model`[[1]]
+# plot(exp1)
+# # resid(exp1)
+# shapiro.test(resid(exp1))
+# 
+# t1 <- `t_model`[[1]]
+# plot(t1)
+# # resid(exp1)
+# shapiro.test(resid(t1))
+# qqnorm(resid(t1))
+```
+
+```{r shapiro-tests}
+`norm_model` <- readRDS("simulated_models/norm_models.RDS")
+`t_model` <- readRDS("simulated_models/t_models.RDS")
+`exp_model` <- readRDS("simulated_models/exp_models.RDS")
+
+normal_tests <- lapply(`norm_model`,function(x){
+    model_normality_test <- shapiro.test(resid(x))
+    # print(model_normality_test)
+    })
+saveRDS(normal_tests,file="./Result/Normality/normal.RDS")
+
+t_tests <- lapply(`t_model`,function(x){
+    model_normality_test <- shapiro.test(resid(x))
+    # print(model_normality_test)
+    })
+saveRDS(t_tests,file="./Result/Normality/t.RDS")
+
+exp_tests <- lapply(`t_model`,function(x){
+    model_normality_test <- shapiro.test(resid(x))
+    # print(model_normality_test)
+    })
+saveRDS(exp_tests,file="./Result/Normality/exp.RDS")
+```
+
+#### Constant-Variance Assumption
+```{r load-heteroscadasticity-data}
+`var-` <- readRDS("simulated_models/-_models.RDS")
+`var<` <- readRDS("simulated_models/<_models.RDS")
+`var>` <- readRDS("simulated_models/>_models.RDS")
+`var<>` <- readRDS("simulated_models/<>_models.RDS")
+`var><` <- readRDS("simulated_models/><_models.RDS")
+```
+
+```{r Breusch-Pagan-Test}
+# library(lmtest)
+# sim1 <- (`var-`[[1]])
+# plot(sim1)
+# resid(sim1)
+# fitted(sim1)
+# plot(fitted(sim1),resid(sim1))
+# mod <- lm(resid(sim1) ~ fitted(sim1))
+# # plot(mod,1)
+# bptest(resid(sim1) ~ fitted(sim1))
+
+`var-tests` <- lapply(`var-`,function(x){
+    bp <- bp(resid(x),fitted(x))
+    return(bp)
+    })
+saveRDS(`var-tests`,file="./Result/ConstantVariance/BP/var-.RDS")
+
+`var<tests` <- lapply(`var<`,function(x){
+    bp <- bp(resid(x),fitted(x))
+    return(bp)
+    })
+saveRDS(`var<tests`,file="./Result/ConstantVariance/BP/var<.RDS")
+
+`var>tests` <- lapply(`var>`,function(x){
+    bp <- bp(resid(x),fitted(x))
+    return(bp)
+    })
+saveRDS(`var>tests`,file="./Result/ConstantVariance/BP/var>.RDS")
+
+`var<>tests` <- lapply(`var<>`,function(x){
+    bp <- bp(resid(x),fitted(x))
+    return(bp)
+    })
+saveRDS(`var<>tests`,file="./Result/ConstantVariance/BP/var<>.RDS")
+
+`var><tests` <- lapply(`var><`,function(x){
+    bp <- bp(resid(x),fitted(x))
+    return(bp)
+    })
+saveRDS(`var><tests`,file="./Result/ConstantVariance/BP/var><.RDS")
+```
+
+```{r Brown-Forsythe-test}
+`bf-tests` <- lapply(`var-`,function(x){
+    bftest <- bf(resid(x),fitted(x))
+    return(bftest)
+    })
+saveRDS(`bf-tests`,file="./Result/ConstantVariance/BF/var-.RDS")
+
+`bf<tests` <- lapply(`var<`,function(x){
+    bftest <- bf(resid(x),fitted(x))
+    return(bftest)
+    })
+saveRDS(`bf<tests`,file="./Result/ConstantVariance/BF/var<.RDS")
+
+`bf>tests` <- lapply(`var>`,function(x){
+    bftest <- bf(resid(x),fitted(x))
+    return(bftest)
+    })
+saveRDS(`bf>tests`,file="./Result/ConstantVariance/BF/var>.RDS")
+
+`bf<>tests` <- lapply(`var<>`,function(x){
+    bftest <- bf(resid(x),fitted(x))
+    return(bftest)
+    })
+saveRDS(`bf<>tests`,file="./Result/ConstantVariance/BF/var<>.RDS")
+
+`bf><tests` <- lapply(`var><`,function(x){
+    bftest <- bf(resid(x),fitted(x))
+    return(bftest)
+    })
+saveRDS(`bf><tests`,file="./Result/ConstantVariance/BF/var><.RDS")
+```
+
+```{r Brown-Forsythe4-test}
+`bf4-tests` <- lapply(`var-`,function(x){
+    bf4test <- bf4(resid(x),fitted(x))
+    return(bf4test)
+    })
+saveRDS(`bf4-tests`,file="./Result/ConstantVariance/BF4/var-.RDS")
+
+`bf4<tests` <- lapply(`var<`,function(x){
+    bf4test <- bf4(resid(x),fitted(x))
+    return(bf4test)
+    })
+saveRDS(`bf4<tests`,file="./Result/ConstantVariance/BF4/var<.RDS")
+
+`bf4>tests` <- lapply(`var>`,function(x){
+    bf4test <- bf4(resid(x),fitted(x))
+    return(bf4test)
+    })
+saveRDS(`bf4>tests`,file="./Result/ConstantVariance/BF4/var>.RDS")
+
+`bf4<>tests` <- lapply(`var<>`,function(x){
+    bf4test <- bf4(resid(x),fitted(x))
+    return(bf4test)
+    })
+saveRDS(`bf4<>tests`,file="./Result/ConstantVariance/BF4/var<>.RDS")
+
+`bf4><tests` <- lapply(`var><`,function(x){
+    bf4test <- bf4(resid(x),fitted(x))
+    return(bf4test)
+    })
+saveRDS(`bf4><tests`,file="./Result/ConstantVariance/BF4/var><.RDS")
+```
+
+#### Linearity Assumption
+
+```{r load-data}
+# normality_norm <- readRDS("norm_models.RDS")
+`linear_term_models` <- readRDS("simulated_models/linear_models.RDS")
+`sq_term_models` <- readRDS("simulated_models/sq_models.RDS")
+```
+
+```{r linearity-test-using-anova}
+linearity_linear <- lapply(`linear_term_models`,function(mod){
+    model_linear_term <- lmer(log.radon ~ basement + uranium + (basement | county), data = mod@frame)
+    model_sq_term <- lmer(log.radon ~ basement + uranium + I(uranium^2) + (basement | county), data = mod@frame)
+    anova_result <- anova(model_linear_term,model_sq_term)
+    return(c(stats=anova_result$Chisq[2],p_val=anova_result$`Pr(>Chisq)`[2])) # return test stats and p-value
+    })
+# Model summary can be later checked using summary(linearity_linear[["sim_1"]][[1]])
+saveRDS(linearity_linear,file="./Result/Linearity/linear.RDS")
+
+# plot(linear_term_models[[10]]@frame$uranium,fitted(linear_term_models[[10]]))
+
+linearity_sq <- lapply(`sq_term_models`,function(mod){
+    model_linear_term <- lmer(log.radon ~ basement + uranium + (basement | county), data = mod@frame)
+    model_sq_term <- lmer(log.radon ~ basement + uranium + I(uranium^2) + (basement | county), data = mod@frame)
+    anova_result <- anova(model_linear_term,model_sq_term)
+    return(c(stats=anova_result$Chisq[2],p_val=anova_result$`Pr(>Chisq)`[2])) # return test stats and p-value
+    })
+saveRDS(linearity_sq,file="./Result/Linearity/sq.RDS")
+```
+
+### Result
+
+```{r nsim}
+nsim <- 5000
+```
+
+```{r shapiro-normality-test-results}
+normal <- readRDS("~/lme-diag-simulations/simulation/Result/Normality/normal.RDS")
+normal_p <- lapply(normal,function(x){return(x$p.value)})
+normal_reject <- normal_p[c(which(normal_p < 0.05))]
+length(normal_reject)/nsim
+
+t <- readRDS("~/lme-diag-simulations/simulation/Result/Normality/t.RDS")
+t_p <- lapply(t,function(x){return(x$p.value)})
+t_reject <- t_p[c(which(t_p < 0.05))]
+length(t_reject)/nsim
+
+exp <- readRDS("~/lme-diag-simulations/simulation/Result/Normality/exp.RDS")
+exp_p <- lapply(exp,function(x){return(x$p.value)})
+exp_reject <- exp_p[c(which(exp_p < 0.05))]
+length(exp_reject)/nsim
+```
+
+```{r bp-test-result}
+`var-` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BP/var-.RDS")
+`var-_p` <- lapply(`var-`,function(x){return(x['p_val'])})
+`bpvar-_reject` <- `var-_p`[c(which(`var-_p` < 0.05))]
+length(`bpvar-_reject`)/nsim
+
+`var<` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BP/var<.RDS")
+`var<_p` <- lapply(`var<`,function(x){return(x['p_val'])})
+`bpvar<_reject` <- `var<_p`[c(which(`var<_p` < 0.05))]
+length(`bpvar<_reject`)/nsim
+
+`var<>` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BP/var<>.RDS")
+`var<>_p` <- lapply(`var<>`,function(x){return(x['p_val'])})
+`bpvar<>_reject` <- `var<>_p`[c(which(`var<>_p` < 0.05))]
+length(`bpvar<>_reject`)/nsim
+
+`var>` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BP/var>.RDS")
+`var>_p` <- lapply(`var>`,function(x){return(x['p_val'])})
+`bpvar>_reject` <- `var>_p`[c(which(`var>_p` < 0.05))]
+length(`bpvar>_reject`)/nsim
+
+`var><` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BP/var><.RDS")
+`var><_p` <- lapply(`var><`,function(x){return(x['p_val'])})
+`bpvar><_reject` <- `var><_p`[c(which(`var><_p` < 0.05))]
+length(`bpvar><_reject`)/nsim
+
+```
+
+```{r bf-test-result}
+`var-` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BF/var-.RDS")
+`var-_p` <- lapply(`var-`,function(x){return(x['p_val'])})
+`bfvar-_reject` <- `var-_p`[c(which(`var-_p` < 0.05))]
+length(`bfvar-_reject`)/nsim
+
+`var<` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BF/var<.RDS")
+`var<_p` <- lapply(`var<`,function(x){return(x['p_val'])})
+`bfvar<_reject` <- `var<_p`[c(which(`var<_p` < 0.05))]
+length(`bfvar<_reject`)/nsim
+
+`var<>` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BF/var<>.RDS")
+`var<>_p` <- lapply(`var<>`,function(x){return(x['p_val'])})
+`bfvar<>_reject` <- `var<>_p`[c(which(`var<>_p` < 0.05))]
+length(`bfvar<>_reject`)/nsim
+
+`var>` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BF/var>.RDS")
+`var>_p` <- lapply(`var>`,function(x){return(x['p_val'])})
+`bfvar>_reject` <- `var>_p`[c(which(`var>_p` < 0.05))]
+length(`bfvar>_reject`)/nsim
+
+`var><` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BF/var><.RDS")
+`var><_p` <- lapply(`var><`,function(x){return(x['p_val'])})
+`bfvar><_reject` <- `var><_p`[c(which(`var><_p` < 0.05))]
+length(`bfvar><_reject`)/nsim
+```
+
+```{r bf4-test-result}
+`var-` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BF4/var-.RDS")
+`var-_p` <- lapply(`var-`,function(x){return(x['p_val'])})
+`bfvar-_reject` <- `var-_p`[c(which(`var-_p` < 0.05))]
+length(`bfvar-_reject`)/nsim
+
+`var<` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BF4/var<.RDS")
+`var<_p` <- lapply(`var<`,function(x){return(x['p_val'])})
+`bfvar<_reject` <- `var<_p`[c(which(`var<_p` < 0.05))]
+length(`bfvar<_reject`)/nsim
+
+`var<>` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BF4/var<>.RDS")
+`var<>_p` <- lapply(`var<>`,function(x){return(x['p_val'])})
+`bfvar<>_reject` <- `var<>_p`[c(which(`var<>_p` < 0.05))]
+length(`bfvar<>_reject`)/nsim
+
+`var>` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BF4/var>.RDS")
+`var>_p` <- lapply(`var>`,function(x){return(x['p_val'])})
+`bfvar>_reject` <- `var>_p`[c(which(`var>_p` < 0.05))]
+length(`bfvar>_reject`)/nsim
+
+`var><` <- readRDS("~/lme-diag-simulations/simulation/Result/ConstantVariance/BF4/var><.RDS")
+`var><_p` <- lapply(`var><`,function(x){return(x['p_val'])})
+`bfvar><_reject` <- `var><_p`[c(which(`var><_p` < 0.05))]
+length(`bfvar><_reject`)/nsim
+```
+
+```{r linear-test-result}
+linear <- readRDS("~/lme-diag-simulations/simulation/Result/Linearity/linear.RDS")
+linear_p <- lapply(linear,function(x){return(x['p_val'])})
+linear_reject <- linear_p[c(which(linear_p < 0.05))]
+length(linear_reject)/nsim
+
+sq <- readRDS("~/lme-diag-simulations/simulation/Result/Linearity/sq.RDS")
+sq_p <- lapply(sq,function(x){return(x['p_val'])})
+sq_reject <- sq_p[c(which(sq_p < 0.05))]
+length(sq_reject)/nsim
+```

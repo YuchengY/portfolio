@@ -1,0 +1,373 @@
+---
+title: "Error Hertero + Nonlinear"
+author: "Yicheng Shen"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(lmtest)
+library(STB)
+library(qqplotr)
+library(stringr)
+library(purrr)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lme4)
+library(HLMdiag)
+library(nlme)
+library(qqplotr)
+library(PearsonDS)
+library(MASS)
+library(gridExtra)
+library(doParallel)
+library(foreach)
+options(warn=-1)
+.lmerMod_matrices<- HLMdiag:::.lmerMod_matrices
+```
+
+
+# Analysis of Model Residuals when violating constant variance and linearity assumptions together
+
+3 group settings : Same sized / Balanced / Unbalanced
+
+2 Linaerity: Linear / Sqauared
+
+4 Heterscedasticity factors: Constant Variance / 2 / 4 / 8
+
+
+# Generate two-level datasets and fit models
+
+```{r}
+set.seed(202167)
+sa_simdata.df<- generate_data(50,0,0.5)
+ba_simdata.df<- generate_data(50,1,0.5)
+ub_simdata.df<- generate_data(50,2,0.5)
+```
+
+
+# Simulation functions
+
+```{r simulation-function-heter-nonlinear}
+sim.hlm_heterlin <- function(simdata.df, helin.dsn) {
+
+sim_design <- simdata.df # Contain id, grouping and two predictors 
+
+b0 <- 5     # Intercept
+b1 <- 1       # X_ij slope 
+b2 <- 1       # Z_ij slope 
+sd_error <- 1  # # std of the error term, default set as e ~ N(0,1)
+sd_int   <- 0.5  # random effect of intercept 
+sd_slope <- 0.5  # re of slope
+
+re_df <- data.frame(group = 1:50, 
+                    intercept = rnorm(50, mean = 0, sd = sd_int),
+                    slope = rnorm(50, mean = 0, sd = sd_slope)) # set up REs for intercept and slope 
+
+
+    if(helin.dsn == "linear_homo") {   # no change
+        sim_df <- left_join(sim_design, re_df, by = "group") %>%
+  mutate(error = rnorm(nrow(.), mean = 0, sd = sqrt(sd_error^2 + 0*(X_ij-min(X_ij)))),
+         Y_ij = b0 + b1 * X_ij + b2 * Z_ij + intercept + slope * X_ij + error)
+    } 
+
+    if(helin.dsn == "sq_2") {  
+        sim_df <- left_join(sim_design, re_df, by = "group") %>%
+  mutate(error = rnorm(nrow(.), mean = 0, sd = sqrt(sd_error^2 + 2*(X_ij-min(X_ij)))),
+         Y_ij = b0 + b1 * X_ij + b2 * (Z_ij)^2 + intercept + slope * X_ij + error)
+    } 
+
+    if(helin.dsn == "sq_4") {  
+        sim_df <- left_join(sim_design, re_df, by = "group") %>%
+  mutate(error = rnorm(nrow(.), mean = 0, sd = sqrt(sd_error^2 + 4*(X_ij-min(X_ij)))),
+         Y_ij = b0 + b1 * X_ij + b2 * (Z_ij)^2 + intercept + slope * X_ij + error)
+    } 
+
+    if(helin.dsn == "sq_8") {  
+        sim_df <- left_join(sim_design, re_df, by = "group") %>%
+  mutate(error = rnorm(nrow(.), mean = 0, sd = sqrt(sd_error^2 + 8*(X_ij-min(X_ij)))),
+         Y_ij = b0 + b1 * X_ij + b2 * (Z_ij)^2 + intercept + slope * X_ij + error)
+    } 
+    
+    # y.df <- as.data.frame( as.matrix(sim_df$Y_ij) )
+    # colnames(y.df) <- paste("sim_", 1:ncol(y.df), sep = "")
+    return( sim_df )
+}
+```
+
+
+# Hetero + nonlinear Simualtions 
+
+```{r}
+helin.dsn <- c("linear_homo","sq_2","sq_4","sq_8") # 1 baseline 3 violations 
+
+set.seed(202167)
+nsim <- 20        # default as 20; change as needed
+
+model_resid <- vector("list", length = nsim)
+sim_model <- vector("list", length = nsim)
+first_resid <- vector("list", length = nsim)
+sec_resid <- vector("list", length = nsim)
+
+
+# same size sim
+for(k in seq_along(helin.dsn)){
+  
+same_size_sim.fm <- replicate (nsim, sim.hlm_heterlin(sa_simdata.df, helin.dsn = helin.dsn[k]))
+
+for(i in seq_along(1:nsim)) {
+  sim_model[[i]] <- lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = (same_size_sim.fm)[,i], 
+             control = lmerControl(calc.derivs = FALSE))
+  
+  # level 1 resid
+  first_resid[[i]] <- hlm_resid(sim_model[[i]],standardize = T, include.ls = TRUE)
+  # level 2 resid
+  sec_resid[[i]]<-hlm_resid(sim_model[[i]], level = "group", standardize = T, include.ls = TRUE)
+  sec_resid[[i]]$mahalanobis<-mahalanobis_ranef.lmerMod(sim_model[[i]]) 
+  # combine into one object
+  model_resid[[i]] <-list(first_resid[[i]], sec_resid[[i]])
+  names(model_resid[[i]]) = c("first_resid", "second_resid")
+}
+
+ saveRDS(model_resid, paste("simulated_models/Result/Heter_nonlinear/", helin.dsn[k], "_same_size_residuals.RDS", sep = ""))
+}
+
+
+# balanced sim
+for(k in seq_along(helin.dsn)){
+
+balanced_sim.fm <-  replicate (nsim, sim.hlm_heterlin(ba_simdata.df, helin.dsn = helin.dsn[k]))
+
+for(i in seq_along(1:nsim)) {
+  sim_model[[i]] <- lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = balanced_sim.fm[,i], 
+             control = lmerControl(calc.derivs = FALSE))
+
+  first_resid[[i]] <- hlm_resid(sim_model[[i]],standardize = T, include.ls = TRUE)
+
+  sec_resid[[i]]<-hlm_resid(sim_model[[i]], level = "group", standardize = T, include.ls = TRUE)
+  sec_resid[[i]]$mahalanobis<-mahalanobis_ranef.lmerMod(sim_model[[i]]) 
+
+  model_resid[[i]] <-list(first_resid[[i]], sec_resid[[i]])
+  names(model_resid[[i]]) = c("first_resid", "second_resid")
+}
+
+ saveRDS(model_resid, paste("simulated_models/Result/Heter_nonlinear/", helin.dsn[k], "_balanced_residuals.RDS", sep = ""))
+}
+
+
+# unbalanced sim
+for(k in seq_along(helin.dsn)){
+  
+unbalanced_sim.fm <-replicate (nsim, sim.hlm_heterlin(ub_simdata.df, helin.dsn = helin.dsn[k]))
+
+for(i in seq_along(1:nsim)) {
+  sim_model[[i]] <- lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = unbalanced_sim.fm[,i], 
+             control = lmerControl(calc.derivs = FALSE))
+  
+  first_resid[[i]] <- hlm_resid(sim_model[[i]],standardize = T, include.ls = TRUE)
+
+  sec_resid[[i]]<-hlm_resid(sim_model[[i]], level = "group", standardize = T, include.ls = TRUE)
+  sec_resid[[i]]$mahalanobis<-mahalanobis_ranef.lmerMod(sim_model[[i]]) 
+
+  model_resid[[i]] <-list(first_resid[[i]], sec_resid[[i]])
+  names(model_resid[[i]]) = c("first_resid", "second_resid")
+}
+
+ saveRDS(model_resid, paste("simulated_models/Result/Heter_nonlinear/", helin.dsn[k], "_unbalanced_residuals.RDS", sep = ""))
+}
+
+```
+
+
+# Analysis
+
+```{r load-residuals}
+`same_size_linear_var0` <- readRDS("simulated_models/Result/Heter_nonlinear/linear_homo_same_size_residuals.RDS")
+`same_size_sq_var2` <- readRDS("simulated_models/Result/Heter_nonlinear/sq_2_same_size_residuals.RDS")
+`same_size_sq_var4` <- readRDS("simulated_models/Result/Heter_nonlinear/sq_4_same_size_residuals.RDS")
+`same_size_sq_var8` <- readRDS("simulated_models/Result/Heter_nonlinear/sq_8_same_size_residuals.RDS")
+
+`balanced_linear_var0` <- readRDS("simulated_models/Result/Heter_nonlinear/linear_homo_balanced_residuals.RDS")
+`balanced_sq_var2` <- readRDS("simulated_models/Result/Heter_nonlinear/sq_2_balanced_residuals.RDS")
+`balanced_sq_var4` <- readRDS("simulated_models/Result/Heter_nonlinear/sq_4_balanced_residuals.RDS")
+`balanced_sq_var8` <- readRDS("simulated_models/Result/Heter_nonlinear/sq_8_balanced_residuals.RDS")
+
+`unbalanced_linear_var0` <- readRDS("simulated_models/Result/Heter_nonlinear/linear_homo_unbalanced_residuals.RDS")
+`unbalanced_sq_var2` <- readRDS("simulated_models/Result/Heter_nonlinear/sq_2_unbalanced_residuals.RDS")
+`unbalanced_sq_var4` <- readRDS("simulated_models/Result/Heter_nonlinear/sq_4_unbalanced_residuals.RDS")
+`unbalanced_sq_var8` <- readRDS("simulated_models/Result/Heter_nonlinear/sq_8_unbalanced_residuals.RDS")
+```
+
+
+# Linearity
+
+```{r, warning = F}
+# Same Sized Grouping anova test
+registerDoParallel(cores=2)
+
+linear_var0_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {same_size_linear_var0[[i]]$first_resid$.chol.mar.resid}
+sq_var2_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {same_size_sq_var2[[i]]$first_resid$.chol.mar.resid}
+sq_var4_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {same_size_sq_var4[[i]]$first_resid$.chol.mar.resid}
+sq_var8_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {same_size_sq_var8[[i]]$first_resid$.chol.mar.resid}
+
+linear_var0_fittted <- foreach(i = 1:nsim) %dopar% {same_size_linear_var0[[i]]$first_resid$.mar.fitted}
+sq_var2_fittted <-  foreach(i = 1:nsim) %dopar% {same_size_sq_var2[[i]]$first_resid$.mar.fitted}
+sq_var4_fittted <-  foreach(i = 1:nsim) %dopar% {same_size_sq_var4[[i]]$first_resid$.mar.fitted}
+sq_var8_fittted <-  foreach(i = 1:nsim) %dopar% {same_size_sq_var8[[i]]$first_resid$.mar.fitted}
+
+linear_model_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(linear_var0_chol.mar.resid[[i]] ~ linear_var0_fittted[[i]]),lm(linear_var0_chol.mar.resid[[i]] ~ linear_var0_fittted[[i]] + I(linear_var0_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+sq_var2_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(sq_var2_chol.mar.resid[[i]] ~ sq_var2_fittted[[i]]),lm(sq_var2_chol.mar.resid[[i]] ~ sq_var2_fittted[[i]] + I(sq_var2_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+sq_var4_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(sq_var4_chol.mar.resid[[i]] ~ sq_var4_fittted[[i]]),lm(sq_var4_chol.mar.resid[[i]] ~ sq_var4_fittted[[i]] + I(sq_var4_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+sq_var8_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(sq_var8_chol.mar.resid[[i]] ~ sq_var8_fittted[[i]]),lm(sq_var8_chol.mar.resid[[i]] ~ sq_var8_fittted[[i]] + I(sq_var8_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+length(linear_model_anova_p[c(which(linear_model_anova_p < 0.05))])/nsim
+length(sq_var2_anova_p[c(which(sq_var2_anova_p < 0.05))])/nsim
+length(sq_var4_anova_p[c(which(sq_var4_anova_p < 0.05))])/nsim
+length(sq_var8_anova_p[c(which(sq_var8_anova_p < 0.05))])/nsim
+```
+
+```{r, warning = F}
+# Balanced Grouping anova test
+registerDoParallel(cores=2)
+
+linear_var0_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {balanced_linear_var0[[i]]$first_resid$.chol.mar.resid}
+sq_var2_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {balanced_sq_var2[[i]]$first_resid$.chol.mar.resid}
+sq_var4_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {balanced_sq_var4[[i]]$first_resid$.chol.mar.resid}
+sq_var8_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {balanced_sq_var8[[i]]$first_resid$.chol.mar.resid}
+
+linear_var0_fittted <- foreach(i = 1:nsim) %dopar% {balanced_linear_var0[[i]]$first_resid$.mar.fitted}
+sq_var2_fittted <-  foreach(i = 1:nsim) %dopar% {balanced_sq_var2[[i]]$first_resid$.mar.fitted}
+sq_var4_fittted <-  foreach(i = 1:nsim) %dopar% {balanced_sq_var4[[i]]$first_resid$.mar.fitted}
+sq_var8_fittted <-  foreach(i = 1:nsim) %dopar% {balanced_sq_var8[[i]]$first_resid$.mar.fitted}
+
+linear_model_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(linear_var0_chol.mar.resid[[i]] ~ linear_var0_fittted[[i]]),lm(linear_var0_chol.mar.resid[[i]] ~ linear_var0_fittted[[i]] + I(linear_var0_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+sq_var2_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(sq_var2_chol.mar.resid[[i]] ~ sq_var2_fittted[[i]]),lm(sq_var2_chol.mar.resid[[i]] ~ sq_var2_fittted[[i]] + I(sq_var2_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+sq_var4_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(sq_var4_chol.mar.resid[[i]] ~ sq_var4_fittted[[i]]),lm(sq_var4_chol.mar.resid[[i]] ~ sq_var4_fittted[[i]] + I(sq_var4_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+sq_var8_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(sq_var8_chol.mar.resid[[i]] ~ sq_var8_fittted[[i]]),lm(sq_var8_chol.mar.resid[[i]] ~ sq_var8_fittted[[i]] + I(sq_var8_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+length(linear_model_anova_p[c(which(linear_model_anova_p < 0.05))])/nsim
+length(sq_var2_anova_p[c(which(sq_var2_anova_p < 0.05))])/nsim
+length(sq_var4_anova_p[c(which(sq_var4_anova_p < 0.05))])/nsim
+length(sq_var8_anova_p[c(which(sq_var8_anova_p < 0.05))])/nsim
+```
+
+
+```{r, warning = F}
+# Unbalanced Grouping anova test
+registerDoParallel(cores=2)
+
+linear_var0_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {unbalanced_linear_var0[[i]]$first_resid$.chol.mar.resid}
+sq_var2_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {unbalanced_sq_var2[[i]]$first_resid$.chol.mar.resid}
+sq_var4_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {unbalanced_sq_var4[[i]]$first_resid$.chol.mar.resid}
+sq_var8_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {unbalanced_sq_var8[[i]]$first_resid$.chol.mar.resid}
+
+linear_var0_fittted <- foreach(i = 1:nsim) %dopar% {unbalanced_linear_var0[[i]]$first_resid$.mar.fitted}
+sq_var2_fittted <-  foreach(i = 1:nsim) %dopar% {unbalanced_sq_var2[[i]]$first_resid$.mar.fitted}
+sq_var4_fittted <-  foreach(i = 1:nsim) %dopar% {unbalanced_sq_var4[[i]]$first_resid$.mar.fitted}
+sq_var8_fittted <-  foreach(i = 1:nsim) %dopar% {unbalanced_sq_var8[[i]]$first_resid$.mar.fitted}
+
+linear_model_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(linear_var0_chol.mar.resid[[i]] ~ linear_var0_fittted[[i]]),lm(linear_var0_chol.mar.resid[[i]] ~ linear_var0_fittted[[i]] + I(linear_var0_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+sq_var2_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(sq_var2_chol.mar.resid[[i]] ~ sq_var2_fittted[[i]]),lm(sq_var2_chol.mar.resid[[i]] ~ sq_var2_fittted[[i]] + I(sq_var2_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+sq_var4_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(sq_var4_chol.mar.resid[[i]] ~ sq_var4_fittted[[i]]),lm(sq_var4_chol.mar.resid[[i]] ~ sq_var4_fittted[[i]] + I(sq_var4_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+sq_var8_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(sq_var8_chol.mar.resid[[i]] ~ sq_var8_fittted[[i]]),lm(sq_var8_chol.mar.resid[[i]] ~ sq_var8_fittted[[i]] + I(sq_var8_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+length(linear_model_anova_p[c(which(linear_model_anova_p < 0.05))])/nsim
+length(sq_var2_anova_p[c(which(sq_var2_anova_p < 0.05))])/nsim
+length(sq_var4_anova_p[c(which(sq_var4_anova_p < 0.05))])/nsim
+length(sq_var8_anova_p[c(which(sq_var8_anova_p < 0.05))])/nsim
+```
+
+
+# Constant variance
+
+```{r}
+registerDoParallel(cores=2)
+
+# same-sized 
+`same_size_tests_linear0` <- foreach(i = 1:nsim) %dopar% {bp((`same_size_linear_var0`[[i]]$first_resid$.std.resid),(`same_size_linear_var0`[[i]]$first_resid$.fitted))}
+`var0_p` <- lapply(`same_size_tests_linear0`,function(x){return(x['p_val'])})
+`bpvar0_reject` <- `var0_p`[c(which(`var0_p` < 0.05))]
+length(`bpvar0_reject`)/nsim
+
+`same_size_tests_sq2` <- foreach(i = 1:nsim) %dopar% {bp((`same_size_sq_var2`[[i]]$first_resid$.std.resid),(`same_size_sq_var2`[[i]]$first_resid$.fitted))}
+`var2_p` <- lapply(`same_size_tests_sq2`,function(x){return(x['p_val'])})
+`bpvar2_reject` <- `var2_p`[c(which(`var2_p` < 0.05))]
+length(`bpvar2_reject`)/nsim
+
+`same_size_tests_sq4` <- foreach(i = 1:nsim) %dopar% {bp((`same_size_sq_var4`[[i]]$first_resid$.std.resid),(`same_size_sq_var4`[[i]]$first_resid$.fitted))}
+`var4_p` <- lapply(`same_size_tests_sq4`,function(x){return(x['p_val'])})
+`bpvar4_reject` <- `var4_p`[c(which(`var4_p` < 0.05))]
+length(`bpvar4_reject`)/nsim
+
+`same_size_tests_sq8` <- foreach(i = 1:nsim) %dopar% {bp((`same_size_sq_var8`[[i]]$first_resid$.std.resid),(`same_size_sq_var8`[[i]]$first_resid$.fitted))}
+`var8_p` <- lapply(`same_size_tests_sq8`,function(x){return(x['p_val'])})
+`bpvar8_reject` <- `var8_p`[c(which(`var8_p` < 0.05))]
+length(`bpvar8_reject`)/nsim
+```
+
+```{r}
+registerDoParallel(cores=2)
+
+# balanced 
+`balanced_var_tests_linear` <- foreach(i = 1:nsim) %dopar% {bp((`balanced_linear_var0`[[i]]$first_resid$.std.resid),(`balanced_linear_var0`[[i]]$first_resid$.fitted))}
+`var0_p` <- lapply(`balanced_var_tests_linear`,function(x){return(x['p_val'])})
+`bpvar0_reject` <- `var0_p`[c(which(`var0_p` < 0.05))]
+length(`bpvar0_reject`)/nsim
+
+`balanced_var_tests_sq2` <- foreach(i = 1:nsim) %dopar% {bp((`balanced_sq_var2`[[i]]$first_resid$.std.resid),(`balanced_sq_var2`[[i]]$first_resid$.fitted))}
+`var2_p` <- lapply(`balanced_var_tests_sq2`,function(x){return(x['p_val'])})
+`bpvar2_reject` <- `var2_p`[c(which(`var2_p` < 0.05))]
+length(`bpvar2_reject`)/nsim
+
+`balanced_var_tests_sq4` <- foreach(i = 1:nsim) %dopar% {bp((`balanced_sq_var4`[[i]]$first_resid$.std.resid),(`balanced_sq_var4`[[i]]$first_resid$.fitted))}
+`var4_p` <- lapply(`balanced_var_tests_sq4`,function(x){return(x['p_val'])})
+`bpvar4_reject` <- `var4_p`[c(which(`var4_p` < 0.05))]
+length(`bpvar4_reject`)/nsim
+
+`balanced_var_tests_sq8` <- foreach(i = 1:nsim) %dopar% {bp((`balanced_sq_var8`[[i]]$first_resid$.std.resid),(`balanced_sq_var8`[[i]]$first_resid$.fitted))}
+`var8_p` <- lapply(`balanced_var_tests_sq8`,function(x){return(x['p_val'])})
+`bpvar8_reject` <- `var8_p`[c(which(`var8_p` < 0.05))]
+length(`bpvar8_reject`)/nsim
+```
+
+
+```{r}
+registerDoParallel(cores=2)
+
+# unbalanced 
+`unbalanced_var_tests_linear` <- foreach(i = 1:nsim) %dopar% {bp((`unbalanced_linear_var0`[[i]]$first_resid$.std.resid),(`unbalanced_linear_var0`[[i]]$first_resid$.fitted))}
+`var0_p` <- lapply(`balanced_var_tests_linear`,function(x){return(x['p_val'])})
+`bpvar0_reject` <- `var0_p`[c(which(`var0_p` < 0.05))]
+length(`bpvar0_reject`)/nsim
+
+`unbalanced_var_tests_sq2` <- foreach(i = 1:nsim) %dopar% {bp((`unbalanced_sq_var2`[[i]]$first_resid$.std.resid),(`unbalanced_sq_var2`[[i]]$first_resid$.fitted))}
+`var2_p` <- lapply(`unbalanced_var_tests_sq2`,function(x){return(x['p_val'])})
+`bpvar2_reject` <- `var2_p`[c(which(`var2_p` < 0.05))]
+length(`bpvar2_reject`)/nsim
+
+`unbalanced_var_tests_sq4` <- foreach(i = 1:nsim) %dopar% {bp((`unbalanced_sq_var4`[[i]]$first_resid$.std.resid),(`unbalanced_sq_var4`[[i]]$first_resid$.fitted))}
+`var4_p` <- lapply(`unbalanced_var_tests_sq4`,function(x){return(x['p_val'])})
+`bpvar4_reject` <- `var4_p`[c(which(`var4_p` < 0.05))]
+length(`bpvar4_reject`)/nsim
+
+`unbalanced_var_tests_sq8` <- foreach(i = 1:nsim) %dopar% {bp((`unbalanced_sq_var8`[[i]]$first_resid$.std.resid),(`unbalanced_sq_var8`[[i]]$first_resid$.fitted))}
+`var8_p` <- lapply(`unbalanced_var_tests_sq8`,function(x){return(x['p_val'])})
+`bpvar8_reject` <- `var8_p`[c(which(`var8_p` < 0.05))]
+length(`bpvar8_reject`)/nsim
+```
+

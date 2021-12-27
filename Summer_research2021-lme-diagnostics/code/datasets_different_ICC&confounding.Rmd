@@ -1,0 +1,495 @@
+---
+title: "datasets chunks for ICC and confounding"
+author: "Yucheng Yang"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lme4)
+library(HLMdiag)
+library(seplyr)
+library(nlme)
+library(qqplotr)
+library(Distance)
+library(purrr)
+library(diagonals)
+library(tidyverse)
+library(MASS)
+library(PearsonDS)
+library(mvtnorm)
+library(graphics)
+library(dgof)
+library(insight)
+```
+
+## **balanced**
+
+## standard dataset
+
+```{r}
+# Generating 50 groups of balanced simulated data
+# Source: http://anythingbutrbitrary.blogspot.com/2012/10/hierarchical-linear-models-and-lmer.html
+# rm(list = ls())
+set.seed(98765)
+N <- 50   # 30 groups
+# Create two random effects
+sigma_1 = 0.2
+sigma_2 = 0.5
+rho = 0.6
+cov.matrix <-  matrix(c(sigma_1^2, sigma_1 * sigma_2 * rho, sigma_1 * sigma_2 * rho, sigma_2^2), nrow = 2,
+    byrow = TRUE)
+random.effects <-  rmvnorm(N, mean = c(0, 0), sigma = cov.matrix)
+# Set up 50 Groups
+cluster.df <- data.frame(group = c(1:N), a = rnorm(N)) # Each group has its "characteristic" from normal distribution
+# cluster.df
+cluster.df <-  within(cluster.df, {
+    slope_x <-  0.5*a+1
+    intercept <-  2*a+5})
+cluster.df$slope_x = cluster.df$slope_x + random.effects[, 1]
+cluster.df$intercept = cluster.df$intercept + random.effects[, 2]
+# Set up 10 number of observations within each groups
+J = rep(10,50)
+M = sum(J)  #Total number of observations
+x.grid<-list()
+z.grid<-list()
+j<-list()
+group<-list()
+for(i in 1:50) {
+  x.grid[[i]] <- (rnorm(J[[i]]))
+  z.grid[[i]] <- abs(rnorm(J[[i]]))
+  j[[i]] <- rep(1:J[[i]])
+  group[[i]] <- rep(c(i), J[[i]])
+}
+slope_z <- 3
+within.cluster.df <-  data.frame(group=unlist(group), j = unlist(j), X_ij = unlist(x.grid), Z_ij = unlist(z.grid))
+simdata.df = merge(cluster.df, within.cluster.df)
+simdata.df <-  within(simdata.df, Y_ij <- intercept + X_ij * slope_x + Z_ij * slope_z + rnorm(n = M))
+# simdata.df
+balanced.df <-  simdata.df[, c("group", "j", "X_ij", "Z_ij","Y_ij")]
+
+balanced_fm <-  lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = balanced.df)
+
+fm<-balanced_fm
+
+# get_variance_residual(fm)
+#  
+# get_variance_random(fm)
+
+#low confoudning
+# var.residual 
+#    0.9435245 
+# var.random 
+#   4.907163 
+
+vc <- VarCorr( fm )
+vc
+# 
+# 2.12^2/( 2.12^2+0.59^2)
+
+#high icc: 0.9281156
+
+```
+
+
+## ICC 
+###icc = 0.08, low
+```{r}
+# Generating 50 groups of balanced simulated data
+# Source: http://anythingbutrbitrary.blogspot.com/2012/10/hierarchical-linear-models-and-lmer.html
+# rm(list = ls())
+set.seed(98765)
+N <- 50   # 30 groups
+# Create two random effects
+sigma_1 = 0.4
+sigma_2 = 0.4
+rho = 0.2
+cov.matrix <-  matrix(c(sigma_1^2, sigma_1 * sigma_2 * rho, sigma_1 * sigma_2 * rho, sigma_2^2), nrow = 2,
+    byrow = TRUE)
+random.effects <-  rmvnorm(N, mean = c(0, 0), sigma = cov.matrix)
+# Set up 50 Groups
+cluster.df <- data.frame(group = c(1:N), a = rnorm(N)) # Each group has its "characteristic" from normal distribution
+# cluster.df
+cluster.df <-  within(cluster.df, {
+    slope_x <-  2*a+1
+    intercept <-  0.5*a+5})
+cluster.df$slope_x = cluster.df$slope_x + random.effects[, 1]
+cluster.df$intercept = cluster.df$intercept + random.effects[, 2]
+# Set up 10 number of observations within each groups
+J = rep(10,50)
+M = sum(J)  #Total number of observations
+x.grid<-list()
+z.grid<-list()
+j<-list()
+group<-list()
+for(i in 1:50) {
+  x.grid[[i]] <- (rnorm(J[[i]]))
+  z.grid[[i]] <- abs(rnorm(J[[i]]))
+  j[[i]] <- rep(1:J[[i]])
+  group[[i]] <- rep(c(i), J[[i]])
+}
+slope_z <- 0.5
+within.cluster.df <-  data.frame(group=unlist(group), j = unlist(j), X_ij = unlist(x.grid), Z_ij = unlist(z.grid))
+simdata.df = merge(cluster.df, within.cluster.df)
+simdata.df <-  within(simdata.df, Y_ij <- intercept + X_ij * slope_x + Z_ij * slope_z + rnorm(n = M, mean = 0, sd = 1))
+# simdata.df
+balanced.df <-  simdata.df[, c("group", "j", "X_ij", "Z_ij","Y_ij")]
+#balanced.df
+
+
+balanced_fm <-  lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = balanced.df)
+
+fm<-balanced_fm
+
+# get_variance_residual(fm)
+# 
+# get_variance_random(fm)
+
+#low confounding, with 
+# var.residual 
+#    0.9477808 
+# var.random 
+#   4.711875 
+
+# vc <- VarCorr( fm )
+# vc
+
+#0.653^2/(0.653^2+2.159^2)
+#icc: 0.083811
+```
+
+### icc = 0.5, middle level
+```{r}
+# Generating 50 groups of balanced simulated data
+# Source: http://anythingbutrbitrary.blogspot.com/2012/10/hierarchical-linear-models-and-lmer.html
+# rm(list = ls())
+set.seed(98765)
+N <- 50   # 30 groups
+# Create two random effects
+sigma_1 = 2
+sigma_2 = 0.5
+rho = 0.6
+cov.matrix <-  matrix(c(sigma_1^2, sigma_1 * sigma_2 * rho, sigma_1 * sigma_2 * rho, sigma_2^2), nrow = 2,
+    byrow = TRUE)
+random.effects <-  rmvnorm(N, mean = c(0, 0), sigma = cov.matrix)
+# Set up 50 Groups
+cluster.df <- data.frame(group = c(1:N), a = rnorm(N)) # Each group has its "characteristic" from normal distribution
+# cluster.df
+cluster.df <-  within(cluster.df, {
+    slope_x <-  0.5*a+1
+    intercept <-  2*a+5})
+cluster.df$slope_x = cluster.df$slope_x + random.effects[, 1]
+cluster.df$intercept = cluster.df$intercept + random.effects[, 2]
+# Set up 10 number of observations within each groups
+J = rep(10,50)
+M = sum(J)  #Total number of observations
+x.grid<-list()
+z.grid<-list()
+j<-list()
+group<-list()
+for(i in 1:50) {
+  x.grid[[i]] <- (rnorm(J[[i]]))
+  z.grid[[i]] <- abs(rnorm(J[[i]]))
+  j[[i]] <- rep(1:J[[i]])
+  group[[i]] <- rep(c(i), J[[i]])
+}
+slope_z <- 0.5
+within.cluster.df <-  data.frame(group=unlist(group), j = unlist(j), X_ij = unlist(x.grid), Z_ij = unlist(z.grid))
+simdata.df = merge(cluster.df, within.cluster.df)
+simdata.df <-  within(simdata.df, Y_ij <- intercept + X_ij * slope_x + Z_ij * slope_z + rnorm(n = M, mean = 0, sd = 1))
+# simdata.df
+balanced.df <-  simdata.df[, c("group", "j", "X_ij", "Z_ij","Y_ij")]
+#balanced.df
+
+
+balanced_fm <-  lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = balanced.df)
+fm<-balanced_fm
+
+# get_variance_residual(fm)
+# 
+# get_variance_random(fm)
+
+#low confoudning
+# var.residual 
+#    0.9442537 
+# var.random 
+#   8.583425 
+
+
+# vc <- VarCorr( fm )
+# vc
+# 2.13^2/(2.13^2+2.07^2)
+#icc = 0.5142828
+```
+
+### icc = 0.9, high level
+```{r}
+# Generating 50 groups of balanced simulated data
+# Source: http://anythingbutrbitrary.blogspot.com/2012/10/hierarchical-linear-models-and-lmer.html
+# rm(list = ls())
+set.seed(98765)
+N <- 50   # 30 groups
+# Create two random effects
+sigma_1 = 0.2
+sigma_2 = 0.6
+rho = 0.6
+cov.matrix <-  matrix(c(sigma_1^2, sigma_1 * sigma_2 * rho, sigma_1 * sigma_2 * rho, sigma_2^2), nrow = 2,
+    byrow = TRUE)
+random.effects <-  rmvnorm(N, mean = c(0, 0), sigma = cov.matrix)
+# Set up 50 Groups
+cluster.df <- data.frame(group = c(1:N), a = rnorm(N)) # Each group has its "characteristic" from normal distribution
+# cluster.df
+cluster.df <-  within(cluster.df, {
+    slope_x <-  0.5*a+1
+    intercept <-  2*a+5})
+cluster.df$slope_x = cluster.df$slope_x + random.effects[, 1]
+cluster.df$intercept = cluster.df$intercept + random.effects[, 2]
+# Set up 10 number of observations within each groups
+J = rep(10,50)
+M = sum(J)  #Total number of observations
+x.grid<-list()
+z.grid<-list()
+j<-list()
+group<-list()
+for(i in 1:50) {
+  x.grid[[i]] <- (rnorm(J[[i]]))
+  z.grid[[i]] <- abs(rnorm(J[[i]]))
+  j[[i]] <- rep(1:J[[i]])
+  group[[i]] <- rep(c(i), J[[i]])
+}
+slope_z <- 0.5
+within.cluster.df <-  data.frame(group=unlist(group), j = unlist(j), X_ij = unlist(x.grid), Z_ij = unlist(z.grid))
+simdata.df = merge(cluster.df, within.cluster.df)
+simdata.df <-  within(simdata.df, Y_ij <- intercept + X_ij * slope_x + Z_ij * slope_z + rnorm(n = M, mean = 0, sd = 1))
+# simdata.df
+balanced.df <-  simdata.df[, c("group", "j", "X_ij", "Z_ij","Y_ij")]
+#balanced.df
+
+
+balanced_fm <-  lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = balanced.df)
+
+fm<-balanced_fm
+
+# get_variance_residual(fm)
+# 
+# get_variance_random(fm)
+
+# low confounding
+# var.residual 
+#    0.9434533 
+# var.random 
+#   4.990263
+
+# vc <- VarCorr( fm )
+# vc
+# 2.140^2/(2.140^2+0.593^2)
+#icc = 0.9286897
+```
+
+
+# confounding
+
+
+### var: e = 1, re = 5, low confounding
+```{r}
+set.seed(98765)
+N <- 50   # 50 groups
+# Create two random effects
+sigma_1 = 0.2
+sigma_2 = 0.6
+rho = 0.6
+cov.matrix <-  matrix(c(sigma_1^2, sigma_1 * sigma_2 * rho, sigma_1 * sigma_2 * rho, sigma_2^2), nrow = 2,
+    byrow = TRUE)
+random.effects <-  rmvnorm(N, mean = c(0, 0), sigma = cov.matrix)
+# Set up 50 Groups
+cluster.df <- data.frame(group = c(1:N), a = rnorm(N)) # Each group has its "characteristic" from normal distribution
+# cluster.df
+cluster.df <-  within(cluster.df, {
+    slope_x <-  0.5*a+1
+    intercept <-  2*a+5})
+cluster.df$slope_x = cluster.df$slope_x + random.effects[, 1]
+cluster.df$intercept = cluster.df$intercept + random.effects[, 2]
+# Set up 10 number of observations within each groups
+J = rep(10,50)
+M = sum(J)  #Total number of observations
+x.grid<-list()
+z.grid<-list()
+j<-list()
+group<-list()
+for(i in 1:50) {
+  x.grid[[i]] <- (rnorm(J[[i]]))
+  z.grid[[i]] <- abs(rnorm(J[[i]]))
+  j[[i]] <- rep(1:J[[i]])
+  group[[i]] <- rep(c(i), J[[i]])
+}
+slope_z <- 0.5
+within.cluster.df <-  data.frame(group=unlist(group), j = unlist(j), X_ij = unlist(x.grid), Z_ij = unlist(z.grid))
+simdata.df = merge(cluster.df, within.cluster.df)
+simdata.df <-  within(simdata.df, Y_ij <- intercept + X_ij * slope_x + Z_ij * slope_z + rnorm(n = M, mean = 0, sd = 1))
+# simdata.df
+balanced.df <-  simdata.df[, c("group", "j", "X_ij", "Z_ij","Y_ij")]
+#balanced.df
+
+
+balanced_fm <-  lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = balanced.df)
+
+fm<-balanced_fm
+
+# get_variance_residual(fm)
+
+# get_variance_random(fm)
+
+# var.residual 
+#   0.9434533 
+# var.random 
+#   4.990263 
+
+
+# vc <- VarCorr( fm )
+# vc
+#2.139^2/(2.139^2+0.593^2)
+#high icc 0.9286277
+
+```
+
+### var: e = 1, re= 1 (approximates), middle level confounding
+```{r}
+# Generating 50 groups of balanced simulated data
+# Source: http://anythingbutrbitrary.blogspot.com/2012/10/hierarchical-linear-models-and-lmer.html
+# rm(list = ls())
+set.seed(98765)
+N <- 50   # 50 groups
+# Create two random effects
+sigma_1 = 0.4
+sigma_2 = 0.4
+rho = 0.8
+cov.matrix <-  matrix(c(sigma_1^2, sigma_1 * sigma_2 * rho, sigma_1 * sigma_2 * rho, sigma_2^2), nrow = 2,
+    byrow = TRUE)
+random.effects <-  rmvnorm(N, mean = c(0, 0), sigma = cov.matrix)
+# Set up 50 Groups
+cluster.df <- data.frame(group = c(1:N), a = rnorm(N)) # Each group has its "characteristic" from normal distribution
+# cluster.df
+cluster.df <-  within(cluster.df, {
+    slope_x <-  0.5*a+1
+    intercept <-  0.5*a+5})
+cluster.df$slope_x = cluster.df$slope_x + random.effects[, 1]
+cluster.df$intercept = cluster.df$intercept + random.effects[, 2]
+# Set up 10 number of observations within each groups
+J = rep(10,50)
+M = sum(J)  #Total number of observations
+x.grid<-list()
+z.grid<-list()
+j<-list()
+group<-list()
+for(i in 1:50) {
+  x.grid[[i]] <- (rnorm(J[[i]]))
+  z.grid[[i]] <- abs(rnorm(J[[i]]))
+  j[[i]] <- rep(1:J[[i]])
+  group[[i]] <- rep(c(i), J[[i]])
+}
+slope_z <- 0.5
+within.cluster.df <-  data.frame(group=unlist(group), j = unlist(j), X_ij = unlist(x.grid), Z_ij = unlist(z.grid))
+simdata.df = merge(cluster.df, within.cluster.df)
+simdata.df <-  within(simdata.df, Y_ij <- intercept + X_ij * slope_x + Z_ij * slope_z + rnorm(n = M, mean = 0, sd = 1))
+# simdata.df
+balanced.df <-  simdata.df[, c("group", "j", "X_ij", "Z_ij","Y_ij")]
+#balanced.df
+
+
+balanced_fm <-  lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = balanced.df)
+
+fm<-balanced_fm
+
+
+# get_variance_residual(fm)
+
+# get_variance_random(fm)
+
+# var.residual 
+# 0.943274 
+# var.random 
+# 0.9416249 
+
+
+
+# vc <- VarCorr( fm )
+# vc
+# 
+# 0.67^2/(0.67^2+0.65^2)
+
+#middle icc: 0.515
+```
+
+### var: e = 4, re = 1, high level confounding
+```{r}
+# Generating 50 groups of balanced simulated data
+# Source: http://anythingbutrbitrary.blogspot.com/2012/10/hierarchical-linear-models-and-lmer.html
+# rm(list = ls())
+set.seed(98765)
+N <- 50   # 30 groups
+# Create two random effects
+sigma_1 = 0.2
+sigma_2 = 0.6
+rho = 0.6
+cov.matrix <-  matrix(c(sigma_1^2, sigma_1 * sigma_2 * rho, sigma_1 * sigma_2 * rho, sigma_2^2), nrow = 2,
+    byrow = TRUE)
+random.effects <-  rmvnorm(N, mean = c(0, 0), sigma = cov.matrix)
+# Set up 50 Groups
+cluster.df <- data.frame(group = c(1:N), a = rnorm(N)) # Each group has its "characteristic" from normal distribution
+# cluster.df
+cluster.df <-  within(cluster.df, {
+    slope_x <-  0.5*a+1
+    intercept <-  0.5*a+5})
+cluster.df$slope_x = cluster.df$slope_x + random.effects[, 1]
+cluster.df$intercept = cluster.df$intercept + random.effects[, 2]
+# Set up 10 number of observations within each groups
+J = rep(10,50)
+M = sum(J)  #Total number of observations
+x.grid<-list()
+z.grid<-list()
+j<-list()
+group<-list()
+for(i in 1:50) {
+  x.grid[[i]] <- (rnorm(J[[i]]))
+  z.grid[[i]] <- abs(rnorm(J[[i]]))
+  j[[i]] <- rep(1:J[[i]])
+  group[[i]] <- rep(c(i), J[[i]])
+}
+slope_z <- 0.5
+within.cluster.df <-  data.frame(group=unlist(group), j = unlist(j), X_ij = unlist(x.grid), Z_ij = unlist(z.grid))
+simdata.df = merge(cluster.df, within.cluster.df)
+simdata.df <-  within(simdata.df, Y_ij <- intercept + X_ij * slope_x + Z_ij * slope_z + rnorm(n = M, mean = 0, sd = 2))
+# simdata.df
+balanced.df <-  simdata.df[, c("group", "j", "X_ij", "Z_ij","Y_ij")]
+#balanced.df
+balanced_fm <-  lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = balanced.df)
+
+fm<-balanced_fm
+
+
+# get_variance_residual(fm)
+# 
+# get_variance_random(fm)
+
+# var.residual 
+#   3.782713 
+# var.random 
+#   1.083918 
+
+
+# vc <- VarCorr( fm )
+# vc
+# 
+# 0.809^2/(0.809^2+0.671^2)
+#middle icc: 0.5924
+```
+
+
+

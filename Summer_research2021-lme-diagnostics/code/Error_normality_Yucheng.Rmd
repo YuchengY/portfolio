@@ -1,0 +1,231 @@
+---
+title: "Error term normality simulation"
+author: "Yucheng Yang "
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## contains normal, extremely skewed, moderately skewed, slightly skewed normal and bimodal distributed error term
+
+```{r}
+library(dplyr)
+library(lme4)
+library(HLMdiag)
+library(PearsonDS)
+library(mvtnorm)
+library(MASS)
+library(doParallel)
+library(foreach)
+```
+
+
+
+## helper function
+
+```{r}
+#generate bimodal distribution
+ bimodalDistFunc <- function (n,cpct, mu1, mu2, sig1, sig2) {
+      y0 <- rnorm(n,mean=mu1, sd = sig1)
+      y1 <- rnorm(n,mean=mu2, sd = sig2)
+      flag <- rbinom(n,size=1,prob=cpct)
+      y <- y0*(1 - flag) + y1*flag 
+      }
+
+```
+
+
+## simulation setup 
+
+```{r adpated from Muyang's code}
+## simulation setup 
+## generate simulated models
+sim.hlm <- function(simdata.df, e.dsn) {
+  sim_design <- simdata.df # Contain id, grouping and two predictors 
+  
+  b0 <- 5     # Intercept
+  b1 <- 1       # X_ij slope 
+  b2 <- 1       # Z_ij slope 
+  sd_error <- 1  # # std of the error term, default set as e ~ N(0,1)
+  sd_int   <- 0.5  # random effect of intercept 
+  sd_slope <- 0.5  # re of slope
+  rho<- 0.5
+
+  m<-max(sim_design$group) #number of groups
+  n_obs<-nrow(sim_design) # number of observations 
+  
+  #cov matrix
+  cov.matrix <-  matrix(c(sd_int^2, sd_int * sd_int * rho, sd_int * sd_int * rho, sd_slope^2), nrow = 2,
+                        byrow = TRUE)
+  
+  #random effect
+  re_df <- data.frame(cbind(group= 1:m, mvrnorm(m, c(0,0), Sigma =  cov.matrix)))
+    colnames(re_df) <- c("group", "intercept", "slope")
+    
+  #skewed intercept 
+  if(e.dsn == "norm") {
+      e  <- rnorm(n = n_obs, mean = 0, sd = sd_error)
+      #e <- matrix(e, nc = n_obs)
+    	sim_df <- left_join(data.frame(sim_design), re_df, by = "group") %>%
+          mutate(Y_ij = b0 + b1 * X_ij + b2 * Z_ij + intercept + slope * X_ij + e)
+    } 
+    
+    
+if(e.dsn == "skewness_3") {
+      #fact: kurtosis>1+skewness^2
+      
+      #extremely skewed: skewness = 3, kurtosis = 11
+      p <- c(mean=0,variance= sd_error^2,skewness=3, kurtosis = 11)
+      e <- rpearson(n_obs, moments = p)
+      #e <- matrix(e, nc = n_obs)
+      sim_df <- left_join(data.frame(sim_design), re_df, by = "group") %>%
+          mutate(Y_ij = b0 + b1 * X_ij + b2 * Z_ij + intercept + slope * X_ij + e)
+}
+    
+     #moderately skewed: skewness = 1.5, kurtosis = 6
+    if(e.dsn == "skewness_1.5") {
+    	p <- c(mean=0,variance= sd_error^2,skewness=1.5, kurtosis = 6)
+      e <- rpearson(n_obs, moments = p)
+      #e <- matrix(e, nc = n_obs)
+      sim_df <- left_join(data.frame(sim_design), re_df, by = "group") %>%
+          mutate(Y_ij = b0 + b1 * X_ij + b2 * Z_ij + intercept + slope * X_ij + e)
+    }
+    
+    #slightlyy skewed: skewness = 0.8, kurtosis = 4
+    if(e.dsn == "skewness_0.8") {
+    	p <- c(mean=0,variance= sd_error^2,skewness=0.8, kurtosis = 4)
+      e <- rpearson(n_obs, moments = p)
+      #e <- matrix(e, nc = n_obs)
+      sim_df <- left_join(data.frame(sim_design), re_df, by = "group") %>%
+          mutate(Y_ij = b0 + b1 * X_ij + b2 * Z_ij + intercept + slope * X_ij + e)
+    }
+
+    
+    if (e.dsn == "bimodal"){
+      mu1 <- -1 #so their mean cancels out to 0
+      mu2 <-  1
+      sig1 <- sd_error
+      sig2 <- sd_error
+      cpct <- 0.4 # take 40% from one and 60% from another
+      e <- bimodalDistFunc(n_obs,cpct,mu1,mu2, sig1,sig2)
+      #e <- matrix(e, nc = n_obs)
+      sim_df <- left_join(data.frame(sim_design), re_df, by = "group") %>%
+          mutate(Y_ij = b0 + b1 * X_ij + b2 * Z_ij + intercept + slope * X_ij + e)
+    }
+  
+   return( sim_df )
+}
+
+```
+
+## simulation function (currently setting N = 20)
+
+```{r simulaion-normality adapted from Muyang's code}
+## Set seed and warning handler
+set.seed(98765)
+#options(warn = 2) # turns warnings into errors
+nsim = 20
+#model_resid <- list()
+sa_simdata.df <- generate_data(20,0,0.5)
+first_resid <- vector("list", length = nsim)
+sec_resid <- vector("list", length = nsim)
+sim.model <- vector("list", length = nsim)
+l <- vector("list", length = 0)
+## Simulating
+e.dsn<-c("norm", "skewness_3", "skewness_1.5", "skewness_0.8", "bimodal")
+
+
+for(k in seq_along(e.dsn)){
+  
+  sim.fm <- replicate (nsim, sim.hlm(sa_simdata.df, e.dsn =  e.dsn[k]))
+  
+  for(i in 1:nsim) {
+      sim.model[[i]] <- lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = sim.fm[,i], control = lmerControl(calc.derivs = FALSE))
+      
+     first_resid[[i]] <- hlm_resid(sim.model[[i]],standardize = F, include.ls = TRUE)
+      sec_resid[[i]]<-hlm_resid(sim.model[[i]], level = names(sim.model[[i]]@flist), include.ls = TRUE)
+      l[[length(l)+1]] <-list(first_resid[[i]], sec_resid[[i]])
+      nms <- c ("first_resid", "second_resid")
+      names(l[[i]]) = nms
+  }
+	  saveRDS(l, paste( e.dsn[k], "_models.RDS", sep = ""))
+}
+
+
+```
+
+
+```{r read RDS}
+`norm_model` <- readRDS("norm_models.RDS")
+`3_model` <- readRDS("skewness_3_models.RDS")
+`1.5_model` <- readRDS("skewness_1.5_models.RDS")
+`0.8_model` <- readRDS("skewness_0.8_models.RDS")
+`bimodal_model` <- readRDS("bimodal_models.RDS")
+
+
+```
+
+## simulation results 
+```{r shapiro-normality-test-results}
+registerDoParallel(cores=3)
+#normal
+normal_tests<- foreach(i = 1:nsim) %dopar% {
+  shapiro.test(`norm_model`[[i]]$first_resid$.resid)
+}
+normal_p<-foreach(i = 1:nsim) %dopar% {
+  normal_tests[[i]]$p.value
+}
+normal_reject <- normal_p[c(which(normal_p < 0.05))]
+length(normal_reject)/nsim
+
+
+
+#skew3
+skew3_tests<- foreach(i = 1:nsim) %dopar% {
+  shapiro.test(`3_model`[[i]]$first_resid$.resid)
+}
+skew3_p<-foreach(i = 1:nsim) %dopar% {
+  skew3_tests[[i]]$p.value
+}
+skew3_reject <- skew3_p[c(which(skew3_p < 0.05))]
+length(skew3_reject)/nsim
+
+
+#skew1.5
+skew1.5_tests<- foreach(i = 1:nsim) %dopar% {
+  shapiro.test(`1.5_model`[[i]]$first_resid$.resid)
+}
+skew1.5_p<-foreach(i = 1:nsim) %dopar% {
+  skew1.5_tests[[i]]$p.value
+}
+skew1.5_reject <- skew1.5_p[c(which(skew1.5_p < 0.05))]
+length(skew1.5_reject)/nsim
+
+
+#skew0.8
+skew0.8_tests<- foreach(i = 1:nsim) %dopar% {
+  shapiro.test(`0.8_model`[[i]]$first_resid$.resid)
+}
+skew0.8_p<-foreach(i = 1:nsim) %dopar% {
+  skew0.8_tests[[i]]$p.value
+}
+skew0.8_reject <- skew0.8_p[c(which(skew0.8_p < 0.05))]
+length(skew0.8_reject)/nsim
+
+
+#bimodal
+bimodal_tests<- foreach(i = 1:nsim) %dopar% {
+  shapiro.test(`bimodal_model`[[i]]$first_resid$.resid)
+}
+bimodal_p<-foreach(i = 1:nsim) %dopar% {
+  bimodal_tests[[i]]$p.value
+}
+bimodal_reject <- bimodal_p[c(which(bimodal_p < 0.05))]
+length(bimodal_reject)/nsim
+
+
+```
+
+

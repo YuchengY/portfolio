@@ -1,0 +1,333 @@
+---
+title: "Foreach Template"
+author: "Yicheng Shen & Yucheng Yang"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(lmtest)
+library(dplyr)
+library(tidyr)
+library(lme4)
+library(nlme)
+library(HLMdiag)
+library(PearsonDS)
+library(MASS)
+library(doParallel)
+library(foreach)
+library(readr)
+options(warn=-1)
+.lmerMod_matrices<- HLMdiag:::.lmerMod_matrices
+```
+
+
+# Read Helper 
+```{r}
+source("Helper_Functions.R")
+source("Simulation_Functions.R")
+```
+
+
+# Settings
+```{r}
+nsim = 5
+set.seed(45678)
+```
+
+
+## data generation function
+
+```{r}
+generate_data_try <- function(ngroup=50, variance = "large_error", balance="same", norm = "norm", hetero = 0, lin = "full", omit ="full", RE = "norm_re", hetero_lin = "linear_homo", hetero_norm = "homo_normal" ){
+  
+  N <- ngroup   # default 50 groups
+  # Create two random effects (slope and intercept) 
+  sigma_1 = 0.5
+  sigma_2 = 0.5
+  rho = 0.5
+  cov.matrix <-  matrix(c(sigma_1^2, sigma_1 * sigma_2 * rho, sigma_1 * sigma_2 * rho, sigma_2^2), nrow = 2,
+                        byrow = TRUE)
+  random.effects <-  mvrnorm(N, mu = c(0, 0), Sigma = cov.matrix)
+  
+  # Set up Groups
+  cluster.df <- data.frame(group = c(1:N), a = rnorm(N)) # Each group has its "characteristic" (unused now)
+  
+  cluster.df <-  within(cluster.df, {
+    slope_x <-  1
+    slope_z <- 1
+    intercept <-  5})
+  
+  cluster.df$slope_x = cluster.df$slope_x + random.effects[, 1]
+  cluster.df$intercept = cluster.df$intercept + random.effects[, 2]
+  
+  # Set up number of observations within each groups
+  
+  if (balance == "same"){
+    J = rep(25,ngroup)
+  }
+  
+  if (balance == "balanced"){
+    J = sample(20:30, ngroup, replace = TRUE) 
+  }
+  
+  if (balance == "unbalanced"){
+    J = sample(2:50, ngroup, replace = TRUE) 
+  }
+  
+  M = sum(J)  #Total number of observations
+  
+  x.grid<-list()
+  z.grid<-list()
+  j<-list()
+  group<-list()
+  
+  for(i in 1:N) {
+    x.grid[[i]] <- (rnorm(J[[i]]))
+    z.grid[[i]] <- abs(rnorm(J[[i]]))
+    j[[i]] <- rep(1:J[[i]])
+    group[[i]] <- rep(c(i), J[[i]])
+  }
+  
+  within.cluster.df <-  data.frame(group=unlist(group), j = unlist(j), X_ij = unlist(x.grid), Z_ij = unlist(z.grid))
+  
+  # Without Y_ij
+  simdata.df = merge(cluster.df, within.cluster.df)
+  #norm = "norm"; hetero = 0; lin = "full"; omit ="full"; RE = "norm_re"
+  #hetero = 0, lin = "full", omit ="full", RE = "norm_re"
+  simdata.df <- simdata.df %>% mutate(variance=variance, balance= balance, normality = norm, hetero = hetero, linearity = lin, omit = omit, random_effects = RE, hetero_lin = hetero_lin, hetero_norm = hetero_norm )
+  
+  simdata.df <-  as_tibble(simdata.df[, c("group", "j", "X_ij", "Z_ij", "variance","balance","normality", "hetero", "linearity", "omit", "random_effects", "hetero_lin", "hetero_norm")])
+  
+  return(simdata.df)
+}
+```
+
+## register cores and initialize clusters and set seed
+
+```{r}
+ncores <- 12
+cl <- makeCluster(ncores, type = "FORK")
+registerDoParallel(cl)
+
+set.seed(4352216)
+```
+
+
+## Design matrix 
+
+```{r}
+# New Idea about design matrix (Yicheng 7.24)
+# Only include settings that we want to analyze in this study 
+# Currently 108 rows 
+
+variance<-c("large_error","large_re") # var settings added 7.25
+balance<-c("same","balanced","unbalanced")
+norm<-c("norm", "skewness_3", "skewness_1.5", "skewness_0.8", "bimodal")
+hetero<-c("0","2","4","8")
+lin<-c("linear","sq")
+omit<-c("full","reduced")
+RE <- c("norm_re","mildly_skewed_re_intercept", "mildly_skewed_re_slope")
+hetero_lin <- c("linear_homo","sq_2","sq_4","sq_8")
+hetero_norm <- c("0_skew","2_skew", "4_skew", "8_skew")
+
+design_matrix_norm<-expand.grid(variance, balance, norm, hetero[1],lin[1],RE[1],omit[1],hetero_lin[1],hetero_norm[1])
+design_matrix_heter<-expand.grid(variance, balance, norm[1], hetero,lin[1],RE[1],omit[1],hetero_lin[1],hetero_norm[1])
+design_matrix_lin<-expand.grid(variance, balance, norm[1], hetero[1],lin,RE[1],omit[1],hetero_lin[1],hetero_norm[1])
+design_matrix_re<-expand.grid(variance, balance, norm[1], hetero[1],lin[1],RE,omit[1],hetero_lin[1],hetero_norm[1])
+design_matrix_omit<-expand.grid(variance, balance, norm[1], hetero[1],lin[1],RE[1],omit,hetero_lin[1],hetero_norm[1])
+design_matrix_hetero_lin<-expand.grid(variance, balance, norm[1], hetero[1],lin[1],RE[1],omit[1],hetero_lin,hetero_norm[1])
+design_matrix_hetero_norm<-expand.grid(variance, balance, norm[1], hetero[1],lin[1],RE[1],omit[1],hetero_lin[1],hetero_norm)
+
+# Rename scenario
+scenario <- c("variance","balance", "normality", "heteroscedasticity", "linearity", "random_effect", "fixed_effect","Hetero_lin","Hetero_norm")
+colnames(design_matrix_norm)<- colnames(design_matrix_heter) <- 
+  colnames(design_matrix_lin) <- colnames(design_matrix_re)  <-
+  colnames(design_matrix_omit) <- colnames(design_matrix_hetero_lin) <-
+  colnames(design_matrix_hetero_norm) <- scenario
+
+# Combine all settings considered
+design_matrix<- rbind(design_matrix_norm,
+                      design_matrix_heter,
+                      design_matrix_lin,
+                      design_matrix_re,
+                      design_matrix_omit,
+                      design_matrix_hetero_lin,
+                      design_matrix_hetero_norm) %>% distinct()
+design_matrix
+
+#design_matrix_bigError <- design_matrix
+#design_matrix_bigError$variance <- "large_error"
+#design_matrix_bigRe <- design_matrix
+#design_matrix_bigRe$variance <- "large_re"
+
+#design_matrix<- (rbind(design_matrix_bigError,
+#                      design_matrix_bigRe) %>% distinct())[c(9,1,2,3,4,5,6,7,8)]
+#design_matrix$variance <- as.factor(design_matrix$variance)
+```
+
+
+## data list 
+
+## helper 
+```{r}
+#source: https://stackoverflow.com/questions/16300344/how-to-flatten-a-list-of-lists
+
+flattenlist <- function(x){  
+  morelists <- sapply(x, function(xprime) class(xprime)[1]=="list")
+  out <- c(x[!morelists], unlist(x[morelists], recursive=FALSE))
+  if(sum(morelists)){ 
+    Recall(out)
+  }else{
+    return(out)
+  }
+}
+
+```
+
+
+```{r}
+get_design_matrix_data <- function(design_matrix_input) {
+  data_list <- vector("list", length = nrow(design_matrix_input))
+  for (i in 1:nrow(design_matrix_input)) { 
+    data_list[[i]] <- vector("list", length = nsim)
+    data_list[[i]] <- replicate(
+      n = nsim,
+      generate_data_try(ngroup=50,
+                    variance = design_matrix_input %>% pull(variance) %>% `[`(i),
+                    balance = design_matrix_input %>% pull(balance) %>% `[`(i),
+                    norm = design_matrix_input %>% pull(normality) %>% `[`(i),
+                    hetero = design_matrix_input %>% pull(heteroscedasticity) %>% `[`(i),
+                    lin = design_matrix_input %>% pull(linearity) %>% `[`(i),
+                    omit = design_matrix_input %>% pull(fixed_effect) %>% `[`(i),
+                    RE = design_matrix_input %>% pull(random_effect) %>% `[`(i),
+                    hetero_lin = design_matrix_input %>% pull(Hetero_lin) %>% `[`(i),
+                    hetero_norm = design_matrix_input %>% pull(Hetero_norm) %>% `[`(i)
+                    ), 
+      simplify = FALSE
+    ) }
+ return( data_list  )
+}
+```
+
+
+## sim models for all assumptions
+```{r}
+#norm 
+norm_data_list <- flattenlist(get_design_matrix_data(design_matrix_norm))
+
+sim.fm.norm<-foreach(i = 1:length(norm_data_list)) %dopar%{
+  sim.hlm(norm_data_list[[i]], e.dsn  = as.character(norm_data_list[[i]]$normality[1]),
+                                      var = as.character(norm_data_list[[i]]$variance[1]))
+}
+
+
+
+#hetero
+hetero_data_list <- flattenlist(get_design_matrix_data(design_matrix_heter))
+
+sim.fm.hetero <- foreach(i = 1:length(hetero_data_list)) %dopar%{
+  sim.hlmvar(hetero_data_list[[i]], evar.dsn  = as.numeric(hetero_data_list[[i]]$hetero[1]),
+                                      var = as.character(hetero_data_list[[i]]$variance[1]))
+}
+
+
+#linearity
+linear_data_list <- flattenlist(get_design_matrix_data(design_matrix_lin))
+
+sim.fm.lin <- foreach(i = 1:length(linear_data_list)) %dopar%{
+  sim.hlmlin(linear_data_list[[i]], rel.dsn  = as.character(linear_data_list[[i]]$linearity[1]),
+                                      var = as.character(linear_data_list[[i]]$variance[1]))
+}
+
+ 
+ 
+#fixed effects
+fixed_data_list <- flattenlist(get_design_matrix_data(design_matrix_omit))
+
+sim.fm.fix<-foreach(i = 1:length(fixed_data_list)) %dopar%{
+  sim.hlmfix(fixed_data_list[[i]], z.dsn  = as.character(fixed_data_list[[i]]$omit[1]),
+                                      var = as.character(fixed_data_list[[i]]$variance[1]))
+}
+
+
+
+#RE norm 
+random_effects_data_list <- flattenlist(get_design_matrix_data(design_matrix_re))
+
+sim.fm.re<-foreach(i = 1:length(random_effects_data_list)) %dopar%{
+  sim.hlm_re(random_effects_data_list[[i]], re.dsn  = as.character(random_effects_data_list[[i]]$random_effects[1]),
+                                      var = as.character(random_effects_data_list[[i]]$variance[1]))
+}
+
+
+# Hetero & non-linear
+hetero_lin_data_list <- flattenlist(get_design_matrix_data(design_matrix_hetero_lin))
+
+sim.fm.heterolin <- foreach(i = 1:length(hetero_lin_data_list)) %dopar%{
+ sim.hlm_heterlin(hetero_lin_data_list[[i]], helin.dsn  = as.character(hetero_lin_data_list[[i]]$hetero_lin[1]),
+                                      var = as.character(hetero_lin_data_list[[i]]$variance[1]))
+}
+
+
+# Hetero & non-normal 
+hetero_norm_data_list <- flattenlist(get_design_matrix_data(design_matrix_hetero_norm))
+
+sim.fm.heteronorm<-foreach(i = 1:length(hetero_norm_data_list)) %dopar%{
+  sim.hlmvar_norm(hetero_norm_data_list[[i]], evar.dsn  = as.character(hetero_norm_data_list[[i]]$hetero_norm[1]),
+                                      var = as.character(hetero_norm_data_list[[i]]$variance[1]))
+}
+```
+
+
+## resid extraction for seven scenarios
+```{r}
+
+# A function for extracting residuals from simulated models 
+
+extract_2levels_resid <- function(sim.fm) {
+  
+ model_resid<-  foreach (j =1:length(sim.fm)) %dopar%{
+  sim_model <- lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = as_tibble(sim.fm[[j]]), control = lmerControl(calc.derivs = FALSE))
+  
+  # level 1 resid
+  first_resid <- merge(hlm_resid(sim_model,standardize = T, include.ls = T), 
+                                hlm_resid(sim_model, include.ls = T))
+  # level 2 resid
+  sec_resid <- merge(hlm_resid(sim_model, level = "group", standardize = T, include.ls = T),
+                              hlm_resid(sim_model, level = "group", include.ls = T))
+      
+  # Add mahalanobis distance to level 2
+  sec_resid$mahalanobis<-mahalanobis_ranef.lmerMod(sim_model) 
+      
+  # combine into one model_resid object
+  model_resid <-list(first_resid, sec_resid)
+  names(model_resid) = c("first_resid", "second_resid")
+  model_resid
+  }
+  
+  return (model_resid)
+}
+
+
+norm_resid <- extract_2levels_resid(sim.fm.norm) 
+
+hetero_resid <- extract_2levels_resid(sim.fm.hetero)
+
+linear_resid <- extract_2levels_resid(sim.fm.lin)
+
+RE_resid <- extract_2levels_resid(sim.fm.re)
+
+fix_omit_resid <-extract_2levels_resid(sim.fm.fix)
+
+heterolin_resid <-extract_2levels_resid(sim.fm.heterolin)
+
+hetero_norm_resid <-extract_2levels_resid(sim.fm.heteronorm)
+
+```
+
+```{r}
+stopCluster(cl)
+
+```

@@ -1,0 +1,350 @@
+---
+title: "Error term Heteroscedasticity on balancedness"
+author: "Yicheng Shen"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(lmtest)
+library(STB)
+library(qqplotr)
+library(stringr)
+library(purrr)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lme4)
+library(HLMdiag)
+library(nlme)
+library(qqplotr)
+library(PearsonDS)
+library(MASS)
+library(mvtnorm)
+library(gridExtra)
+library(doParallel)
+library(foreach)
+options(warn=-1)
+.lmerMod_matrices<- HLMdiag:::.lmerMod_matrices
+```
+ 
+ 
+# Analysis of Constant Variance assumption of Residuals from same-sized/balanced/unbalanced datasets 
+
+# Generate two-level datasets and fit models
+
+
+```{r}
+set.seed(202167)
+sa_simdata.df<- generate_data(50,0,0.5)
+ba_simdata.df<- generate_data(50,1,0.5)
+ub_simdata.df<- generate_data(50,2,0.5)
+```
+
+
+
+## Simulation setup 
+
+#### Error Term Constant Variance Assumption
+
+```{r simulation-function-constant-variance}
+sim.hlmvar <- function(simdata.df, evar.dsn) {
+
+sim_design <- simdata.df # Contain id, grouping and two predictors 
+
+b0 <- 5     # Intercept
+b1 <- 1       # X_ij slope 
+b2 <- 1       # Z_ij slope 
+sd_error <- 1  # # std of the error term, default set as e ~ N(0,1)
+sd_int   <- 0.5  # random effect of intercept 
+sd_slope <- 0.5  # re of slope
+
+re_df <- data.frame(group = 1:50, 
+                    intercept = rnorm(50, mean = 0, sd = sd_int),
+                    slope = rnorm(50, mean = 0, sd = sd_slope)) # set up REs for intercept and slope 
+
+
+        sim_df <- left_join(sim_design, re_df, by = "group") %>%
+  mutate(error = rnorm(nrow(.), mean = 0, sd = sqrt(sd_error^2 + evar.dsn*(X_ij-min(X_ij)))),
+         Y_ij = b0 + b1 * X_ij + b2 * Z_ij + intercept + slope * X_ij + error)
+        
+    #y.df <- as.data.frame( as.matrix(sim_df$Y_ij) )
+    #colnames(y.df) <- paste("sim_", 1:ncol(y.df), sep = "")
+        
+    return( sim_df )
+}
+```
+
+
+#### Simulation on non-constant variance
+
+```{r simulation-constant-variance}
+evar.dsn <- c(0,2,4,8) # Constant Variance Assumption
+
+set.seed(202167)
+nsim <- 20        # default as 20; change as needed
+
+model_resid <- vector("list", length = nsim)
+sim_model <- vector("list", length = nsim)
+first_resid <- vector("list", length = nsim)
+sec_resid <- vector("list", length = nsim)
+
+# same size sim
+for(k in seq_along(evar.dsn)){
+  
+same_size_sim.fm <- replicate (nsim, sim.hlmvar(sa_simdata.df, evar.dsn = evar.dsn[k]))
+
+for(i in seq_along(1:nsim)) {
+  sim_model[[i]] <- lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = same_size_sim.fm[,i], 
+             control = lmerControl(calc.derivs = FALSE))
+  # level 1 resid
+  first_resid[[i]] <- hlm_resid(sim_model[[i]],standardize = T, include.ls = TRUE)
+  # level 2 resid
+  sec_resid[[i]]<-hlm_resid(sim_model[[i]], level = "group", standardize = T, include.ls = TRUE)
+  sec_resid[[i]]$mahalanobis<-mahalanobis_ranef.lmerMod(sim_model[[i]]) 
+  # combine into one object
+  model_resid[[i]] <-list(first_resid[[i]], sec_resid[[i]])
+  names(model_resid[[i]]) = c("first_resid", "second_resid")
+}
+
+ saveRDS(model_resid, paste("simulated_models/Result/Heteroscedasticity/", evar.dsn[k], "_same_size_residuals.RDS", sep = ""))
+}
+
+
+# balanced sim
+for(k in seq_along(evar.dsn)){
+
+balanced_sim.fm <-  replicate (nsim, sim.hlmvar(ba_simdata.df, evar.dsn = evar.dsn[k]))
+
+for(i in seq_along(1:nsim)) {
+  sim_model[[i]] <- lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = balanced_sim.fm[,i], 
+             control = lmerControl(calc.derivs = FALSE))
+  
+  first_resid[[i]] <- hlm_resid(sim_model[[i]],standardize = T, include.ls = TRUE)
+  
+  sec_resid[[i]]<-hlm_resid(sim_model[[i]], level = "group", standardize = T, include.ls = TRUE)
+  sec_resid[[i]]$mahalanobis<-mahalanobis_ranef.lmerMod(sim_model[[i]]) 
+  
+  model_resid[[i]] <-list(first_resid[[i]], sec_resid[[i]])
+  names(model_resid[[i]]) = c ("first_resid", "second_resid")
+}
+
+ saveRDS(model_resid, paste("simulated_models/Result/Heteroscedasticity/", evar.dsn[k], "_balanced_residuals.RDS", sep = ""))
+}
+
+
+# unbalanced sim
+for(k in seq_along(evar.dsn)){
+  
+unbalanced_sim.fm <-replicate (nsim, sim.hlmvar(ub_simdata.df, evar.dsn = evar.dsn[k]))
+
+for(i in seq_along(1:nsim)) {
+  sim_model[[i]] <- lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = unbalanced_sim.fm[,i], 
+             control = lmerControl(calc.derivs = FALSE))
+  
+  first_resid[[i]] <- hlm_resid(sim_model[[i]],standardize = T, include.ls = TRUE)
+  
+  sec_resid[[i]]<-hlm_resid(sim_model[[i]], level = "group", standardize = T, include.ls = TRUE)
+  sec_resid[[i]]$mahalanobis<-mahalanobis_ranef.lmerMod(sim_model[[i]]) 
+  
+  model_resid[[i]] <-list(first_resid[[i]], sec_resid[[i]])
+  names(model_resid[[i]]) = c ("first_resid", "second_resid")
+}
+
+ saveRDS(model_resid, paste("simulated_models/Result/Heteroscedasticity/", evar.dsn[k], "_unbalanced_residuals.RDS", sep = ""))
+}
+
+```
+
+
+#### Constant-Variance Assumption
+```{r load-heteroscadasticity-data}
+`same_size_var0` <- readRDS("simulated_models/Result/Heteroscedasticity/0_same_size_residuals.RDS")
+`same_size_var2` <- readRDS("simulated_models/Result/Heteroscedasticity/2_same_size_residuals.RDS")
+`same_size_var4` <- readRDS("simulated_models/Result/Heteroscedasticity/4_same_size_residuals.RDS")
+`same_size_var8` <- readRDS("simulated_models/Result/Heteroscedasticity/8_same_size_residuals.RDS")
+
+`balanced_var0` <- readRDS("simulated_models/Result/Heteroscedasticity/0_balanced_residuals.RDS")
+`balanced_var2` <- readRDS("simulated_models/Result/Heteroscedasticity/2_balanced_residuals.RDS")
+`balanced_var4` <- readRDS("simulated_models/Result/Heteroscedasticity/4_balanced_residuals.RDS")
+`balanced_var8` <- readRDS("simulated_models/Result/Heteroscedasticity/8_balanced_residuals.RDS")
+
+`unbalanced_var0` <- readRDS("simulated_models/Result/Heteroscedasticity/0_unbalanced_residuals.RDS")
+`unbalanced_var2` <- readRDS("simulated_models/Result/Heteroscedasticity/2_unbalanced_residuals.RDS")
+`unbalanced_var4` <- readRDS("simulated_models/Result/Heteroscedasticity/4_unbalanced_residuals.RDS")
+`unbalanced_var8` <- readRDS("simulated_models/Result/Heteroscedasticity/8_unbalanced_residuals.RDS")
+```
+
+
+```{r Breusch-Pagan-Test}
+# library(lmtest)
+# sim1 <- (`var-`[[1]])
+# plot(sim1)
+# resid(sim1)
+# fitted(sim1)
+# plot(fitted(sim1),resid(sim1))
+# mod <- lm(resid(sim1) ~ fitted(sim1))
+# # plot(mod,1)
+# bptest(resid(sim1) ~ fitted(sim1))
+
+registerDoParallel(cores=2)
+
+# same-sized 
+`same_size_var-tests-0` <- foreach(i = 1:nsim) %dopar% {bp(`same_size_var0`[[i]]$first_resid$.std.resid,`same_size_var0`[[i]]$first_resid$.fitted)}
+saveRDS(`same_size_var-tests-0`,file="simulated_models/Result/Heteroscedasticity/BP/savar0.RDS")
+
+`same_size_var-tests-2` <- foreach(i = 1:nsim) %dopar% {bp(`same_size_var2`[[i]]$first_resid$.std.resid,`same_size_var2`[[i]]$first_resid$.fitted)}
+saveRDS(`same_size_var-tests-2`,file="simulated_models/Result/Heteroscedasticity/BP/savar2.RDS")
+
+`same_size_var-tests-4` <- foreach(i = 1:nsim) %dopar% {bp(`same_size_var4`[[i]]$first_resid$.std.resid,`same_size_var4`[[i]]$first_resid$.fitted)}
+saveRDS(`same_size_var-tests-4`,file="simulated_models/Result/Heteroscedasticity/BP/savar4.RDS")
+
+`same_size_var-tests-8` <- foreach(i = 1:nsim) %dopar% {bp(`same_size_var8`[[i]]$first_resid$.std.resid,`same_size_var8`[[i]]$first_resid$.fitted)}
+saveRDS(`same_size_var-tests-8`,file="simulated_models/Result/Heteroscedasticity/BP/savar8.RDS")
+
+
+# balanced
+`balanced_var-tests-0` <- foreach(i = 1:nsim) %dopar% {bp(`balanced_var0`[[i]]$first_resid$.std.resid,`balanced_var0`[[i]]$first_resid$.fitted)}
+saveRDS(`balanced_var-tests-0`,file="simulated_models/Result/Heteroscedasticity/BP/bavar0.RDS")
+
+`balanced_var-tests-2` <- foreach(i = 1:nsim) %dopar% {bp(`balanced_var2`[[i]]$first_resid$.std.resid,`balanced_var2`[[i]]$first_resid$.fitted)}
+saveRDS(`balanced_var-tests-2`,file="simulated_models/Result/Heteroscedasticity/BP/bavar2.RDS")
+
+`balanced_var-tests-4` <- foreach(i = 1:nsim) %dopar% {bp(`balanced_var4`[[i]]$first_resid$.std.resid,`balanced_var4`[[i]]$first_resid$.fitted)}
+saveRDS(`balanced_var-tests-4`,file="simulated_models/Result/Heteroscedasticity/BP/bavar4.RDS")
+
+`balanced_var-tests-8` <- foreach(i = 1:nsim) %dopar% {bp(`balanced_var8`[[i]]$first_resid$.std.resid,`balanced_var8`[[i]]$first_resid$.fitted)}
+saveRDS(`balanced_var-tests-8`,file="simulated_models/Result/Heteroscedasticity/BP/bavar8.RDS")
+
+
+# unbalanced 
+`unbalanced_var-tests-0` <- foreach(i = 1:nsim) %dopar% {bp(`unbalanced_var0`[[i]]$first_resid$.std.resid,`unbalanced_var0`[[i]]$first_resid$.fitted)}
+saveRDS(`unbalanced_var-tests-0`,file="simulated_models/Result/Heteroscedasticity/BP/ubvar0.RDS")
+
+`unbalanced_var-tests-2` <- foreach(i = 1:nsim) %dopar% {bp(`unbalanced_var2`[[i]]$first_resid$.std.resid,`unbalanced_var2`[[i]]$first_resid$.fitted)}
+saveRDS(`unbalanced_var-tests-2`,file="simulated_models/Result/Heteroscedasticity/BP/ubvar2.RDS")
+
+`unbalanced_var-tests-4` <- foreach(i = 1:nsim) %dopar% {bp(`unbalanced_var4`[[i]]$first_resid$.std.resid,`unbalanced_var4`[[i]]$first_resid$.fitted)}
+saveRDS(`unbalanced_var-tests-4`,file="simulated_models/Result/Heteroscedasticity/BP/ubvar4.RDS")
+
+`unbalanced_var-tests-8` <- foreach(i = 1:nsim) %dopar% {bp(`unbalanced_var8`[[i]]$first_resid$.std.resid,`unbalanced_var8`[[i]]$first_resid$.fitted)}
+saveRDS(`unbalanced_var-tests-8`,file="simulated_models/Result/Heteroscedasticity/BP/ubvar8.RDS")
+
+```
+
+
+# Result
+
+```{r bp-test-result}
+# Same sized groups 
+`var0` <- readRDS("simulated_models/Result/Heteroscedasticity/BP/savar0.RDS")
+`var0_p` <- lapply(`var0`,function(x){return(x['p_val'])})
+`bpvar0_reject` <- `var0_p`[c(which(`var0_p` < 0.05))]
+length(`bpvar0_reject`)/nsim
+
+`var2` <- readRDS("simulated_models/Result/Heteroscedasticity/BP/savar2.RDS")
+`var2_p` <- lapply(`var2`,function(x){return(x['p_val'])})
+`bpvar2_reject` <- `var2_p`[c(which(`var2_p` < 0.05))]
+length(`bpvar2_reject`)/nsim
+
+`var4` <- readRDS("simulated_models/Result/Heteroscedasticity/BP/savar4.RDS")
+`var4_p` <- lapply(`var4`,function(x){return(x['p_val'])})
+`bpvar4_reject` <- `var4_p`[c(which(`var4_p` < 0.05))]
+length(`bpvar4_reject`)/nsim
+
+`var8` <- readRDS("simulated_models/Result/Heteroscedasticity/BP/savar8.RDS")
+`var8_p` <- lapply(`var8`,function(x){return(x['p_val'])})
+`bpvar8_reject` <- `var8_p`[c(which(`var8_p` < 0.05))]
+length(`bpvar8_reject`)/nsim
+```
+
+
+```{r bp-test-result}
+# Balanced groups 
+
+`var0` <- readRDS("simulated_models/Result/Heteroscedasticity/BP/bavar0.RDS")
+`var0_p` <- lapply(`var0`,function(x){return(x['p_val'])})
+`bpvar0_reject` <- `var0_p`[c(which(`var0_p` < 0.05))]
+length(`bpvar0_reject`)/nsim
+
+`var2` <- readRDS("simulated_models/Result/Heteroscedasticity/BP/bavar2.RDS")
+`var2_p` <- lapply(`var2`,function(x){return(x['p_val'])})
+`bpvar2_reject` <- `var2_p`[c(which(`var2_p` < 0.05))]
+length(`bpvar2_reject`)/nsim
+
+`var4` <- readRDS("simulated_models/Result/Heteroscedasticity/BP/bavar4.RDS")
+`var4_p` <- lapply(`var4`,function(x){return(x['p_val'])})
+`bpvar4_reject` <- `var4_p`[c(which(`var4_p` < 0.05))]
+length(`bpvar4_reject`)/nsim
+
+`var8` <- readRDS("simulated_models/Result/Heteroscedasticity/BP/bavar8.RDS")
+`var8_p` <- lapply(`var8`,function(x){return(x['p_val'])})
+`bpvar8_reject` <- `var8_p`[c(which(`var8_p` < 0.05))]
+length(`bpvar8_reject`)/nsim
+```
+
+
+```{r bp-test-result}
+# Unbalanced groups
+
+`var0` <- readRDS("simulated_models/Result/Heteroscedasticity/BP/ubvar0.RDS")
+`var0_p` <- lapply(`var0`,function(x){return(x['p_val'])})
+`bpvar0_reject` <- `var0_p`[c(which(`var0_p` < 0.05))]
+length(`bpvar0_reject`)/nsim
+
+`var2` <- readRDS("simulated_models/Result/Heteroscedasticity/BP/ubvar2.RDS")
+`var2_p` <- lapply(`var2`,function(x){return(x['p_val'])})
+`bpvar2_reject` <- `var2_p`[c(which(`var2_p` < 0.05))]
+length(`bpvar2_reject`)/nsim
+
+`var4` <- readRDS("simulated_models/Result/Heteroscedasticity/BP/ubvar4.RDS")
+`var4_p` <- lapply(`var4`,function(x){return(x['p_val'])})
+`bpvar4_reject` <- `var4_p`[c(which(`var4_p` < 0.05))]
+length(`bpvar4_reject`)/nsim
+
+`var8` <- readRDS("simulated_models/Result/Heteroscedasticity/BP/ubvar8.RDS")
+`var8_p` <- lapply(`var8`,function(x){return(x['p_val'])})
+`bpvar8_reject` <- `var8_p`[c(which(`var8_p` < 0.05))]
+length(`bpvar8_reject`)/nsim
+```
+
+
+```{r, warning=F, eval = F}
+# Plotting conditional resid. 
+# k <- sample(1:500, 30, replace = F)
+plist <- list()
+for(i in 1:20) {
+res[[i]] <- hlm_resid(`unbalanced_var<`[[i]],standardize = TRUE)
+plist[[i]] <- ggplot(res[[i]], aes(x = .fitted, y = .std.resid)) + geom_jitter(alpha = 0.3,size = 0.5) +
+  labs(x = "fitted", y = "cond. resids")+
+  geom_hline(yintercept = 0, color = "black") +theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) 
+
+}
+
+n <- length(plist)
+
+nCol <- floor(sqrt(n))
+
+do.call("grid.arrange", c(plist, ncol=nCol))
+```
+
+
+```{r, eval = F}
+set.seed(202107)
+sim_resids <- lmeresampler::bootstrap(fm, .f = hlm_resid, type = "parametric", B = 48)
+lineup_data <- lineup(true = hlm_resid(fm), n = 48, samples = sim_resids$replicates)
+
+ggplot(lineup_data, aes(x = .fitted, y = .resid)) +
+geom_hline(yintercept = 0, color = "gray60") +
+geom_point(shape = 1,alpha = 0.3,size = 0.5) +
+facet_wrap(~.sample) +
+theme_bw() 
+```
+

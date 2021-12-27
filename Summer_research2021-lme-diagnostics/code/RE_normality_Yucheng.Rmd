@@ -1,0 +1,332 @@
+---
+title: "Random effects normality simulations"
+author: "Yucheng Yang"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lme4)
+library(HLMdiag)
+library(Distance)
+library(diagonals)
+library(tidyverse)
+library(MASS)
+library(PearsonDS)
+library(insight)
+library(doParallel)
+library(foreach)
+
+```
+
+
+
+### helper functions 
+```{r helper functions}
+
+## code for generating skewed bivariate normal distribution, source from: https://blog.revolutionanalytics.com/2016/08/simulating-form-the-bivariate-normal-distribution-in-r-1.html
+
+
+#vectorize all moments according to the random generated mean
+vec_p <- function(n, df){
+  m_list <- vector("list", length = n)
+  for (i in 1:n){
+    m_list[[i]]<-c(df[i], variance = df[n+1], skewness=df[n+2], kurtosis = df[n+3])
+  } 
+  m_list
+}
+#vectorize rpearson
+vec.rpearson <- Vectorize(rpearson)
+
+
+#generate bivariate normal with skewed intercept
+bvn_intercept<-function (n, m1, s1, m2, s2, rho)
+  {
+     X2 <- rnorm(n, m2, s2)
+     p_df <- c(mean = m1 + (s2/s1) * rho *
+            (X2 - m1),variance= (1 - rho^2)*s1^2,skewness=1.5, kurtosis = 6)
+     p<-vec_p(n, p_df)
+     X1 <- vec.rpearson(1, moments = p)
+     
+     cbind(X1, X2)
+  }
+
+
+#generate bivariate normal with skewed slope
+
+bvn_slope<-function (n, m1, s1, m2, s2, rho)
+  {
+     X1 <- rnorm(n, m1, s1)
+
+     p_df <- c(mean = m2 + (s2/s1) * rho *
+            (X1 - m1),variance= (1 - rho^2)*s2^2,skewness=1.5, kurtosis = 6)
+     p<-vec_p(n, p_df)
+     X2 <- vec.rpearson(1, moments = p)
+     
+     cbind(X1, X2)
+}
+
+
+
+#generate bivariate normal with both skewed slope and skewed intercept 
+####don'r know how to do this yet
+# bvn_both<-function (n, m1, s1, m2, s2, rho)
+#   {
+#      
+#     X1 <- rnorm(n, m1, s1)
+#     X2 <- rnorm(n, m2 + (s2/s1) * rho *
+#            (X1 - m1), sqrt((1 - rho^2)*s2^2))
+#   
+#      cbind(X1, X2)
+#   }
+# 
+
+
+## mahalanobis distance extraction function (from Adam)
+mahalanobis_ranef.lmerMod <- function(object){
+  ngrps <- 0
+  mats <- HLMdiag:::.lmerMod_matrices(object)
+  
+  n_lev <- length(lme4::getME(object, "flist"))
+  
+  if(n_lev == 1) {
+    Z <- lme4::getME(object, "Z")
+    vc <- lme4::VarCorr(object)
+    D  <- kronecker(Diagonal(mats$ngrps), bdiag(vc))
+    
+    eblup <- tcrossprod(D, Z) %*% mats$Vinv %*% resid_marginal(object)
+    # vcov_eblup <- D - tcrossprod(D, Z) %*% mats$P %*% tcrossprod(Z, D)
+    vcov_eblup <- tcrossprod(D, Z) %*% mats$P %*% tcrossprod(Z, D)
+    
+    eblup_lst      <- diagonals::split_vector(eblup, size = 2)
+    vcov_eblup_lst <- diagonals::fatdiag(vcov_eblup, steps = ngrps(object)) %>%
+      diagonals::split_vector(size = 4) %>%
+      map(~matrix(.x, nrow = 2, byrow = TRUE))
+    
+    mah_dist_eblup <- purrr::map2_dbl(eblup_lst, vcov_eblup_lst, ~t(.x) %*% MASS::ginv(.y) %*% .x)
+  } else{
+    ### Need to check for higher-level models.... D will fail...
+  } 
+  return(mah_dist_eblup)
+}
+
+
+
+#setup function for gof test: extract the mahalanobis distance of a model
+chi_gof<-function (x){
+  a<-mahalanobis_ranef.lmerMod(x) 
+  a
+}
+
+```
+
+
+
+### simulation setup
+```{r adpated from Muyang's code}
+## simulation setup 
+## generate simulated models
+sim.hlm_re <- function(simdata.df, re.dsn) {
+  sim_design <- simdata.df # Contain id, grouping and two predictors 
+  
+  b0 <- 5     # Intercept
+  b1 <- 1       # X_ij slope 
+  b2 <- 1       # Z_ij slope 
+  sd_error <- 1  # # std of the error term, default set as e ~ N(0,1)
+  sd_int   <- 0.5  # random effect of intercept 
+  sd_slope <- 0.5  # re of slope
+  rho<- 0.5
+  
+  #n<-nrow(data.frame(sim_design)) # number of obs
+  m<-max(sim_design$group) # number of groups
+  
+  
+  
+  #cov matrix for normal settings
+  cov.matrix <-  matrix(c(sd_int^2, sd_int * sd_int * rho, sd_int * sd_int * rho, sd_slope^2), nrow = 2,
+                        byrow = TRUE)
+
+  #norm
+  if (re.dsn == "norm_re"){
+    re_df <- data.frame(cbind(group= 1:m, mvrnorm(m, c(0,0), Sigma =  cov.matrix)))
+    colnames(re_df) <- c("group", "intercept", "slope")
+    
+    sim_df <- left_join(data.frame(sim_design), re_df, by = "group") %>%
+          mutate(error = rnorm(nrow(.), mean = 0, sd = sd_error),
+                 Y_ij = b0 + b1 * X_ij + b2 * Z_ij + intercept + slope * X_ij + error)
+    y.df <- as.data.frame( as.matrix(sim_df$Y_ij) )
+    colnames(y.df) <- paste("sim_", 1:ncol(y.df), sep = "")
+  }
+  
+  
+  #skewed intercept 
+  if(re.dsn == "mildly_skewed_re_intercept") {
+    
+    re_df <- data.frame(cbind(group= 1:m, bvn_intercept(m, 0, sd_int, 0, sd_slope, rho)) )
+    colnames(re_df) <- c("group", "intercept", "slope")
+    
+    sim_df <- left_join(data.frame(sim_design), re_df, by = "group") %>%
+          mutate(error = rnorm(nrow(.), mean = 0, sd = sd_error),
+                 Y_ij = b0 + b1 * X_ij + b2 * Z_ij + intercept + slope * X_ij + error)
+    y.df <- as.data.frame( as.matrix(sim_df$Y_ij) )
+    colnames(y.df) <- paste("sim_", 1:ncol(y.df), sep = "")
+#return( y.df )
+  }
+  
+  #skewed slope
+  if(re.dsn == "mildly_skewed_re_slope") {
+    
+    re_df <- data.frame(cbind(group = 1:m, bvn_slope(m, 0, sd_int, 0, sd_slope, rho)) )
+    colnames(re_df) <- c("group", "intercept", "slope")
+    
+    sim_df <- left_join(data.frame(sim_design), re_df, by = "group") %>%
+          mutate(error = rnorm(nrow(.), mean = 0, sd = sd_error),
+                 Y_ij = b0 + b1 * X_ij + b2 * Z_ij + intercept + slope * X_ij + error)
+}
+  return(sim_df)
+  
+}
+```
+
+
+```{r}
+# same size sim
+re.dsn <- c("norm_re","mildly_skewed_re_intercept", "mildly_skewed_re_slope") 
+sa_simdata.df <- generate_data(50,0,0.5)
+
+nsim <- 20
+first_resid <- vector("list", length = nsim)
+sec_resid <- vector("list", length = nsim)
+sim.model <- vector("list", length = nsim)
+maha <- vector("list", length = nsim)
+l <- vector("list", length = 0)
+for(k in seq_along(re.dsn)){
+  
+  sim.fm <- replicate(nsim, sim.hlm_re(sa_simdata.df, re.dsn = re.dsn[1]))
+  
+  for(i in 1:nsim) {
+    
+      sim.model[[i]] <- lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = sim.fm[,i], control = lmerControl(calc.derivs = FALSE))
+      
+      first_resid[[i]] <- hlm_resid(sim.model[[i]],standardize = T, include.ls = TRUE)
+      
+      sec_resid[[i]] <- hlm_resid(sim.model[[i]], level = names(sim.model[[i]]@flist), include.ls = TRUE)
+      
+      maha[[i]]<-chi_gof(sim.model[[i]])
+      
+      l[[length(l)+1]] <-list(first_resid[[i]], sec_resid[[i]], maha[[i]])
+      nms <- c ("first_resid", "second_resid", "mahalanobis")
+      names(l[[i]]) = nms
+  }
+
+   saveRDS(l, paste(re.dsn[k], "_models.RDS", sep = ""))
+}
+
+```
+
+
+
+
+```{r read RDS}
+`norm_re` <- readRDS("norm_re_models.RDS")
+`mildly_skewed_re_intercept`<-readRDS("mildly_skewed_re_intercept_models.RDS")
+`mildly_skewed_re_slope`<-readRDS("mildly_skewed_re_slope_models.RDS")
+```
+
+
+### GOF test 
+
+```{r GOF tests using foreach loops}
+#register cores
+registerDoParallel(cores=3) # my mac only has 4 cores 
+nsim <- 20
+
+#normal
+
+normal_re_tests<-foreach(i = 1:nsim) %dopar% {
+  ks.test(`norm_re`[i][[1]]$mahalanobis, "pchisq", df=2)
+}
+
+normal_re_p<-foreach(i = 1:nsim) %dopar% {
+  normal_re_tests[[i]]$p.value
+}
+
+normal_re_reject <- normal_re_p[c(which(normal_re_p < 0.05))]
+length(normal_re_reject)/nsim
+saveRDS(normal_re_p,file="normal_re.RDS")
+
+
+#skewed intercept
+
+mildly_skewed_re_intercept_tests<-foreach(i = 1:nsim) %do% {
+  ks.test(`mildly_skewed_re_intercept`[i][[1]]$mahalanobis, "pchisq", df=2)
+}
+mildly_skewed_re_intercept_p<-foreach(i = 1:nsim) %dopar% {
+  mildly_skewed_re_intercept_tests[[i]]$p.value
+}
+
+skewed_re_intercept_reject <- mildly_skewed_re_intercept_p[c(which(mildly_skewed_re_intercept_p < 0.05))]
+length(skewed_re_intercept_reject)/nsim
+
+saveRDS(mildly_skewed_re_intercept_p,file="skewed_re_intercept.RDS")
+
+#skewed slope
+
+mildly_skewed_re_slope_tests<-foreach(i = 1:nsim) %do% {
+  ks.test(`mildly_skewed_re_slope`[i][[1]]$mahalanobis, "pchisq", df=2)
+}
+mildly_skewed_re_slope_p<-foreach(i = 1:nsim) %dopar% {
+  mildly_skewed_re_slope_tests[[i]]$p.value
+}
+
+skewed_re_slope_reject <- mildly_skewed_re_slope_p[c(which(mildly_skewed_re_slope_p < 0.05))]
+length(skewed_re_slope_reject)/nsim
+saveRDS(mildly_skewed_re_slope_p,file="skewed_re_slope.RDS")
+
+```
+
+
+
+```{r chi-square-GOF-test-results, echo = F}
+
+#normal 
+normal_re_p <- readRDS("normal_re.RDS")
+normal_re_reject <- normal_re_p[c(which(normal_re_p < 0.05))]
+
+length(normal_re_reject)/nsim
+
+
+#mildly skewed intercept
+skewed_re_intercept_p <- readRDS("skewed_re_intercept.RDS")
+skewed_re_intercept_reject <- skewed_re_intercept_p[c(which(skewed_re_intercept_p < 0.05))]
+
+length(skewed_re_intercept_reject)/nsim
+
+
+#mildly skewed slope
+
+skewed_re_slope_p <- readRDS("skewed_re_slope.RDS")
+skewed_re_slope_reject <- skewed_re_slope_p[c(which(skewed_re_slope_p < 0.05))]
+
+length(skewed_re_slope_reject)/nsim
+
+
+#mildly skewed slope
+
+skewed_re_both_p <- readRDS("skewed_re_both.RDS")
+skewed_re_both_reject <- skewed_re_both_p[c(which(skewed_re_both_p < 0.05))]
+
+length(skewed_re_both_reject)/nsim
+
+```
+
+
+
+

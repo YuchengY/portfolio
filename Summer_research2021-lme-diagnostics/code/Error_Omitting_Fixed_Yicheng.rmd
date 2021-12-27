@@ -1,0 +1,461 @@
+---
+title: "Error Missing Term"
+author: "Yicheng Shen"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(lmtest)
+library(STB)
+library(qqplotr)
+library(stringr)
+library(purrr)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lme4)
+library(MASS)
+library(HLMdiag)
+library(nlme)
+library(PearsonDS)
+library(gridExtra)
+library(doParallel)
+library(foreach)
+options(warn=-1)
+.lmerMod_matrices<- HLMdiag:::.lmerMod_matrices
+```
+
+
+# Analysis of Model Residuals when omitting a fixed effect term
+
+# Generate two-level datasets and fit models
+
+```{r}
+generate_data <- function(ngroup=50, balance=0, rho = 0.5){
+  
+  N <- ngroup   # default 50 groups
+  
+  # Create two random effects (slope and intercept) 
+  sigma_1 = 0.5
+  sigma_2 = 0.5
+  rho = rho
+  cov.matrix <-  matrix(c(sigma_1^2, sigma_1 * sigma_2 * rho, sigma_1 * sigma_2 * rho, sigma_2^2), nrow = 2,
+                        byrow = TRUE)
+  random.effects <-  mvrnorm(N, mu = c(0, 0), Sigma = cov.matrix)
+  
+  # Set up Groups
+  cluster.df <- data.frame(group = c(1:N), a = rnorm(N)) # Each group has its "characteristic" (unused now)
+  
+  cluster.df <-  within(cluster.df, {
+    slope_x <-  1
+    slope_z <- 1
+    intercept <-  5})
+  
+  cluster.df$slope_x = cluster.df$slope_x + random.effects[, 1]
+  cluster.df$intercept = cluster.df$intercept + random.effects[, 2]
+  
+  # Set up number of observations within each groups
+  
+  if (balance == 0){
+    J = rep(25,ngroup)
+  }
+  
+  if (balance == 1){
+    J = sample(20:30, ngroup, replace = TRUE) 
+  }
+  
+  if (balance == 2){
+    J = sample(2:50, ngroup, replace = TRUE) 
+  }
+  
+  M = sum(J)  #Total number of observations
+  
+  x.grid<-list()
+  z.grid<-list()
+  j<-list()
+  group<-list()
+  
+  for(i in 1:ngroup) {
+    x.grid[[i]] <- (rnorm(J[[i]]))
+    z.grid[[i]] <- abs(rnorm(J[[i]]))
+    j[[i]] <- rep(1:J[[i]])
+    group[[i]] <- rep(c(i), J[[i]])
+  }
+  
+  within.cluster.df <-  data.frame(group=unlist(group), j = unlist(j), X_ij = unlist(x.grid), Z_ij = unlist(z.grid))
+  
+  # Without Y_ij
+  simdata.df = merge(cluster.df, within.cluster.df)
+  
+  simdata.df <-  as_tibble(simdata.df[, c("group", "j", "X_ij", "Z_ij")])
+  
+  return(simdata.df)
+}
+```
+
+
+```{r}
+set.seed(202167)
+sa_simdata.df<- generate_data(50,balance=0)
+ba_simdata.df<- generate_data(50,balance=1)
+ub_simdata.df<- generate_data(50,balance=2)
+```
+
+
+# Simulation functions
+
+```{r simulation-function}
+sim.hlmfix <- function(simdata.df, z.dsn) {
+
+sim_design <- simdata.df # Contain id, grouping and two predictors 
+
+b0 <- 5     # Intercept
+b1 <- 1       # X_ij slope 
+b2 <- 1       # Z_ij slope 
+sd_error <- 1  # # std of the error term, default set as e ~ N(0,1)
+sd_int   <- 0.5  # random effect of intercept 
+sd_slope <- 0.5  # re of slope
+
+re_df <- data.frame(group = 1:50, 
+                    intercept = rnorm(50, mean = 0, sd = sd_int),
+                    slope = rnorm(50, mean = 0, sd = sd_slope)) # set up REs for intercept and slope 
+
+    if(z.dsn == "full") {   # full model, calculate with both variables
+        sim_df <- left_join(sim_design, re_df, by = "group") %>%
+  mutate(error = rnorm(nrow(.), mean = 0, sd = sd_error),
+         Y_ij = b0 + b1 * X_ij + b2 * Z_ij + intercept + slope * X_ij + error)
+    } 
+
+    if(z.dsn == "reduced") {  # reduced model, remove Z_ij
+        sim_df <- left_join(sim_design, re_df, by = "group") %>%
+  mutate(error = rnorm(nrow(.), mean = 0, sd = sd_error),
+         Y_ij = b0 + b1 * X_ij + intercept + slope * X_ij + error)
+    } 
+    
+    # y.df <- as.data.frame( as.matrix(sim_df$Y_ij) )
+    # colnames(y.df) <- paste("sim_", 1:ncol(y.df), sep = "")
+    
+    return( as_tibble(sim_df ) )
+}
+```
+
+
+# Missing Fixed Effect Simulations
+
+```{r}
+z.dsn <- c("full","reduced") 
+
+set.seed(202167)
+nsim <- 20  # default as 20; change as needed
+
+model_resid <- vector("list", length = nsim)
+sim_model <- vector("list", length = nsim)
+first_resid <- vector("list", length = nsim)
+sec_resid <- vector("list", length = nsim)
+
+# same size sim
+for(k in seq_along(z.dsn)){
+  
+same_size_sim.fm <- replicate (nsim, sim.hlmfix(sa_simdata.df,  z.dsn = z.dsn[k]))
+
+for(i in seq_along(1:nsim)) {
+  sim_model[[i]] <- lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = (same_size_sim.fm)[,i], 
+             control = lmerControl(calc.derivs = FALSE))
+  
+  # level 1 resid
+  first_resid[[i]] <- hlm_resid(sim_model[[i]],standardize = T, include.ls = TRUE)
+  # level 2 resid
+  sec_resid[[i]]<-hlm_resid(sim_model[[i]], level = "group", standardize = T, include.ls = TRUE)
+  sec_resid[[i]]$mahalanobis<-mahalanobis_ranef.lmerMod(sim_model[[i]]) 
+  # combine into one object
+  model_resid[[i]] <-list(first_resid[[i]], sec_resid[[i]])
+  names(model_resid[[i]]) = c("first_resid", "second_resid")
+}
+
+ saveRDS(model_resid, paste("simulated_models/Result/Fixedeffect/", z.dsn[k], "_same_size_residuals.RDS", sep = ""))
+}
+
+
+# balanced sim
+for(k in seq_along(z.dsn)){
+
+balanced_sim.fm <-  replicate (nsim, sim.hlmfix(ba_simdata.df,  z.dsn = z.dsn[k]))
+
+for(i in seq_along(1:nsim)) {
+  sim_model[[i]] <- lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = balanced_sim.fm[,i], 
+             control = lmerControl(calc.derivs = FALSE))
+  
+  first_resid[[i]] <- hlm_resid(sim_model[[i]],standardize = T, include.ls = TRUE)
+  
+  sec_resid[[i]]<-hlm_resid(sim_model[[i]], level = "group", standardize = T, include.ls = TRUE)
+  sec_resid[[i]]$mahalanobis<-mahalanobis_ranef.lmerMod(sim_model[[i]]) 
+  
+  model_resid[[i]] <-list(first_resid[[i]], sec_resid[[i]])
+  names(model_resid[[i]]) = c ("first_resid", "second_resid")
+}
+
+ saveRDS(model_resid, paste("simulated_models/Result/Fixedeffect/", z.dsn[k], "_balanced_residuals.RDS", sep = ""))
+}
+
+
+# unbalanced sim
+for(k in seq_along(z.dsn)){
+  
+unbalanced_sim.fm <-replicate (nsim, sim.hlmfix(ub_simdata.df,  z.dsn = z.dsn[k]))
+
+for(i in seq_along(1:nsim)) {
+  sim_model[[i]] <- lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = unbalanced_sim.fm[,i], 
+             control = lmerControl(calc.derivs = FALSE))
+  
+  first_resid[[i]] <- hlm_resid(sim_model[[i]],standardize = T, include.ls = TRUE)
+  
+  sec_resid[[i]]<-hlm_resid(sim_model[[i]], level = "group", standardize = T, include.ls = TRUE)
+  sec_resid[[i]]$mahalanobis<-mahalanobis_ranef.lmerMod(sim_model[[i]]) 
+  
+  model_resid[[i]] <-list(first_resid[[i]], sec_resid[[i]])
+  names(model_resid[[i]]) = c ("first_resid", "second_resid")
+}
+
+ saveRDS(model_resid, paste("simulated_models/Result/Fixedeffect/", z.dsn[k], "_unbalanced_residuals.RDS", sep = ""))
+}
+
+```
+
+
+
+# Analysis 
+
+```{r load-data}
+`same_full_resid` <- readRDS("simulated_models/Result/Fixedeffect/full_same_size_residuals.RDS")
+`same_reduced_resid` <- readRDS("simulated_models/Result/Fixedeffect/reduced_same_size_residuals.RDS")
+`balanced_full_resid` <- readRDS("simulated_models/Result/Fixedeffect/full_balanced_residuals.RDS")
+`balanced_reduced_resid` <- readRDS("simulated_models/Result/Fixedeffect/reduced_balanced_residuals.RDS")
+`unbalanced_full_resid` <- readRDS("simulated_models/Result/Fixedeffect/full_unbalanced_residuals.RDS")
+`unbalanced_reduced_resid` <- readRDS("simulated_models/Result/Fixedeffect/reduced_unbalanced_residuals.RDS")
+```
+
+
+# Linearity 
+
+```{r, warning = F}
+# Same sized Grouping anova test
+registerDoParallel(cores=2)
+
+full_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {`same_full_resid`[[i]]$first_resid$.chol.mar.resid}
+reduced_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {`same_reduced_resid`[[i]]$first_resid$.chol.mar.resid}
+
+full_fittted <- foreach(i = 1:nsim) %dopar% {`same_full_resid`[[i]]$first_resid$.mar.fitted}
+reduced_fittted <-  foreach(i = 1:nsim) %dopar% {`same_reduced_resid`[[i]]$first_resid$.mar.fitted}
+
+full_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(full_chol.mar.resid[[i]] ~ full_fittted[[i]]),lm(full_chol.mar.resid[[i]] ~ full_fittted[[i]] + I(full_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+reduced_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(reduced_chol.mar.resid[[i]] ~ reduced_fittted[[i]]),lm(reduced_chol.mar.resid[[i]] ~ reduced_fittted[[i]] + I(reduced_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+length(full_anova_p[c(which(full_anova_p < 0.05))])/nsim
+length(reduced_anova_p[c(which(reduced_anova_p < 0.05))])/nsim
+```
+
+```{r, warning = F}
+# Balanced Grouping anova test
+registerDoParallel(cores=2)
+
+full_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {`balanced_full_resid`[[i]]$first_resid$.chol.mar.resid}
+reduced_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {`balanced_reduced_resid`[[i]]$first_resid$.chol.mar.resid}
+
+full_fittted <- foreach(i = 1:nsim) %dopar% {`balanced_full_resid`[[i]]$first_resid$.mar.fitted}
+reduced_fittted <-  foreach(i = 1:nsim) %dopar% {`balanced_reduced_resid`[[i]]$first_resid$.mar.fitted}
+
+full_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(full_chol.mar.resid[[i]] ~ full_fittted[[i]]),lm(full_chol.mar.resid[[i]] ~ full_fittted[[i]] + I(full_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+reduced_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(reduced_chol.mar.resid[[i]] ~ reduced_fittted[[i]]),lm(reduced_chol.mar.resid[[i]] ~ reduced_fittted[[i]] + I(reduced_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+length(full_anova_p[c(which(full_anova_p < 0.05))])/nsim
+length(reduced_anova_p[c(which(reduced_anova_p < 0.05))])/nsim
+```
+
+```{r, warning = F}
+# Unbalanced Grouping anova test
+registerDoParallel(cores=2)
+
+full_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {`unbalanced_full_resid`[[i]]$first_resid$.chol.mar.resid}
+reduced_chol.mar.resid<- foreach(i = 1:nsim) %dopar% {`unbalanced_reduced_resid`[[i]]$first_resid$.chol.mar.resid}
+
+full_fittted <- foreach(i = 1:nsim) %dopar% {`unbalanced_full_resid`[[i]]$first_resid$.mar.fitted}
+reduced_fittted <-  foreach(i = 1:nsim) %dopar% {`unbalanced_reduced_resid`[[i]]$first_resid$.mar.fitted}
+
+full_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(full_chol.mar.resid[[i]] ~ full_fittted[[i]]),lm(full_chol.mar.resid[[i]] ~ full_fittted[[i]] + I(full_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+reduced_anova_p <- foreach(i = 1:nsim) %dopar% {anova(lm(reduced_chol.mar.resid[[i]] ~ reduced_fittted[[i]]),lm(reduced_chol.mar.resid[[i]] ~ reduced_fittted[[i]] + I(reduced_fittted[[i]]^2)))$`Pr(>F)`[2]}
+
+length(full_anova_p[c(which(full_anova_p < 0.05))])/nsim
+length(reduced_anova_p[c(which(reduced_anova_p < 0.05))])/nsim
+```
+
+
+# Constant Variance 
+
+```{r, warning = F}
+# same-sized constant variance test
+registerDoParallel(cores=2)
+
+full_bp_test <- foreach(i = 1:nsim) %dopar% {bp(`same_full_resid`[[i]]$first_resid$.std.resid,`same_full_resid`[[i]]$first_resid$.fitted)}
+reduced_bp_test <- foreach(i = 1:nsim) %dopar% {bp(`same_reduced_resid`[[i]]$first_resid$.std.resid,`same_reduced_resid`[[i]]$first_resid$.fitted)}
+
+full_bp_result <- lapply(full_bp_test,function(x){return(x['p_val'])})
+length(full_bp_result[c(which(full_bp_result < 0.05))])/nsim
+
+reduced_bp_result <- lapply(reduced_bp_test,function(x){return(x['p_val'])})
+length(reduced_bp_result[c(which(reduced_bp_result < 0.05))])/nsim
+```
+
+
+```{r, warning = F}
+# balanced constant variance test
+registerDoParallel(cores=2)
+
+full_bp_test <- foreach(i = 1:nsim) %dopar% {bp(`balanced_full_resid`[[i]]$first_resid$.std.resid,`balanced_full_resid`[[i]]$first_resid$.fitted)}
+reduced_bp_test <- foreach(i = 1:nsim) %dopar% {bp(`balanced_reduced_resid`[[i]]$first_resid$.std.resid,`balanced_reduced_resid`[[i]]$first_resid$.fitted)}
+
+full_bp_result <- lapply(full_bp_test,function(x){return(x['p_val'])})
+length(full_bp_result[c(which(full_bp_result < 0.05))])/nsim
+
+reduced_bp_result <- lapply(reduced_bp_test,function(x){return(x['p_val'])})
+length(reduced_bp_result[c(which(reduced_bp_result < 0.05))])/nsim
+```
+
+
+```{r, warning = F}
+# unbalanced constant variance test
+registerDoParallel(cores=2)
+
+full_bp_test <- foreach(i = 1:nsim) %dopar% {bp(`unbalanced_full_resid`[[i]]$first_resid$.std.resid,`unbalanced_full_resid`[[i]]$first_resid$.fitted)}
+reduced_bp_test <- foreach(i = 1:nsim) %dopar% {bp(`unbalanced_reduced_resid`[[i]]$first_resid$.std.resid,`unbalanced_reduced_resid`[[i]]$first_resid$.fitted)}
+
+full_bp_result <- lapply(full_bp_test,function(x){return(x['p_val'])})
+length(full_bp_result[c(which(full_bp_result < 0.05))])/nsim
+
+reduced_bp_result <- lapply(reduced_bp_test,function(x){return(x['p_val'])})
+length(reduced_bp_result[c(which(reduced_bp_result < 0.05))])/nsim
+```
+
+
+
+# Normality
+
+
+```{r}
+#same sized grouping normal test 
+full_normal_tests<- foreach(i = 1:nsim) %dopar% {
+  shapiro.test(`same_full_resid`[[i]]$first_resid$.std.resid)
+}
+full_p<-foreach(i = 1:nsim) %dopar% {
+  full_normal_tests[[i]]$p.value
+}
+full_reject <- full_p[c(which(full_p < 0.05))]
+length(full_reject)/nsim
+
+
+
+reduced_normal_tests<- foreach(i = 1:nsim) %dopar% {
+  shapiro.test(`same_reduced_resid`[[i]]$first_resid$.std.resid)
+}
+reduced_p<-foreach(i = 1:nsim) %dopar% {
+  reduced_normal_tests[[i]]$p.value
+}
+reduced_reject <- reduced_p[c(which(reduced_p < 0.05))]
+length(reduced_reject)/nsim
+```
+
+
+```{r}
+#balanced grouping normal test 
+full_normal_tests<- foreach(i = 1:nsim) %dopar% {
+  shapiro.test(`balanced_full_resid`[[i]]$first_resid$.std.resid)
+}
+full_p<-foreach(i = 1:nsim) %dopar% {
+  full_normal_tests[[i]]$p.value
+}
+full_reject <- full_p[c(which(full_p < 0.05))]
+length(full_reject)/nsim
+
+
+
+reduced_normal_tests<- foreach(i = 1:nsim) %dopar% {
+  shapiro.test(`balanced_reduced_resid`[[i]]$first_resid$.std.resid)
+}
+reduced_p<-foreach(i = 1:nsim) %dopar% {
+  reduced_normal_tests[[i]]$p.value
+}
+reduced_reject <- reduced_p[c(which(reduced_p < 0.05))]
+length(reduced_reject)/nsim
+```
+
+
+```{r}
+#unbalanced grouping normal test 
+full_normal_tests<- foreach(i = 1:nsim) %dopar% {
+  shapiro.test(`unbalanced_full_resid`[[i]]$first_resid$.std.resid)
+}
+full_p<-foreach(i = 1:nsim) %dopar% {
+  full_normal_tests[[i]]$p.value
+}
+full_reject <- full_p[c(which(full_p < 0.05))]
+length(full_reject)/nsim
+
+
+
+reduced_normal_tests<- foreach(i = 1:nsim) %dopar% {
+  shapiro.test(`unbalanced_full_resid`[[i]]$first_resid$.std.resid)
+}
+reduced_p<-foreach(i = 1:nsim) %dopar% {
+  reduced_normal_tests[[i]]$p.value
+}
+reduced_reject <- reduced_p[c(which(reduced_p < 0.05))]
+length(reduced_reject)/nsim
+```
+
+
+
+```{r, eval = F}
+k <- sample(1:20, 20, replace = F)
+res <- list()
+plist <- list()
+for(i in 1:length(k)) {
+res[[i]] <- hlm_resid(`unbalanced_reduced_models`[[(k[[i]])]],standardize = TRUE)
+plist[[i]] <- ggplot(res[[i]], aes(x = .mar.fitted, y = .chol.mar.resid)) + 
+    geom_jitter(alpha = 0.3,size = 0.5) +
+   labs(y = "mar.resid")+ geom_hline(yintercept = 0, color = "black") +
+    theme(axis.title.x=element_blank(),
+       axis.text.x=element_blank(),
+       axis.ticks.x=element_blank())}
+
+n <- length(plist)
+
+nCol <- floor(sqrt(n))
+
+do.call("grid.arrange", c(plist, ncol=nCol))
+
+
+for(i in 1:length(k)) {
+res[[i]] <- hlm_resid(`unbalanced_reduced_models`[[(k[[i]])]],standardize = TRUE)
+plist[[i]] <- ggplot(res[[i]], aes(x = .fitted, y = .std.resid)) + 
+    geom_jitter(alpha = 0.3,size = 0.5) +
+   labs(y = "mar.resid")+ geom_hline(yintercept = 0, color = "black") +
+    theme(axis.title.x=element_blank(),
+       axis.text.x=element_blank(),
+       axis.ticks.x=element_blank())}
+
+n <- length(plist)
+
+nCol <- floor(sqrt(n))
+
+do.call("grid.arrange", c(plist, ncol=nCol))
+```
+
+

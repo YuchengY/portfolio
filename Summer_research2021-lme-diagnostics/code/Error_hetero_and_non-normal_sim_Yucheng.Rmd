@@ -1,0 +1,259 @@
+---
+title: "Error_term_homogeneity_and_normality_simulation"
+author: "Yucheng Yang"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyr)
+library(lme4)
+library(HLMdiag)
+library(PearsonDS)
+library(MASS)
+library(doParallel)
+library(foreach)
+library(tidyverse)
+```
+
+## this sim have 8 scenarios all using balanced dataset: (feel free to remove a few if this seems too much)
+* 0
+* skewed + 0
+* 2
+* skewed + 2
+* 4
+* skewed + 4
+* 8
+* skewed + 8
+
+### all skewed distributions were intended to simulated "mildly skewed normal distribution" with skewness = 1.5 and kurtosis = 6
+
+
+### helper functions
+
+```{r}
+vec_p2 <- function(n, df){
+  m_list <- vector("list", length = n)
+  for (i in 1:n){
+    m_list[[i]]<-c(df[1], variance = df[i+1], skewness=1.5, kurtosis = 6)
+  }
+  m_list
+}
+
+vec.rpearson <- Vectorize(rpearson)
+```
+
+
+## simulation setup (updated with the 0,2,4,8 Yicheng used)
+
+```{r simulation-function-constant-variance}
+sim.hlmvar_norm <- function(simdata.df, evar.dsn) {
+    sim_design <- simdata.df # Contain id, grouping and two predictors 
+    b0 <- 5     # Intercept
+    b1 <- 1       # X_ij slope 
+    b2 <- 1       # Z_ij slope 
+    sd_error <- 1  # # std of the error term, default set as e ~ N(0,1)
+    sd_int   <- 0.5  # random effect of intercept 
+    sd_slope <- 0.5  # re of slope
+    
+    #cov matrix for random effects
+    cov.matrix <-  matrix(c(sd_int^2, sd_int * sd_int * rho, sd_int * sd_int * rho, sd_slope^2), nrow = 2,
+                          byrow = TRUE)
+    
+    #generate random effects
+    re_df <- data.frame(cbind(group= 1:m, mvrnorm(m, c(0,0), Sigma =  cov.matrix)))
+    colnames(re_df) <- c("group", "intercept", "slope")
+    
+
+
+    #check if the error is skewed - no skewness
+        if (endsWith(evar.dsn, "skew") ==FALSE){
+          
+          # e  <- rnorm(n = nrow(sim_design), mean = 0, sd = sqrt(sd_error^2 + evar.dsn*(X_ij-min(X_ij))))
+          # p_df<-c(mean=0,variance= sd_error^2 + parse_number(evar.dsn)*(sim_design$X_ij-min(sim_design$X_ij)),skewness=1.5, kurtosis = 6)
+          # p<-vec_p2(m, p_df)
+          # 
+          # error <- vec.rpearson(1, moments = p)
+
+        	sim_df <- left_join(sim_design, re_df, by = "group") %>%
+  mutate(error = rnorm(nrow(.), mean = 0, sd = sqrt(sd_error^2 + parse_number(evar.dsn)*(X_ij-min(X_ij)))),
+         Y_ij = b0 + b1 * X_ij + b2 * Z_ij + intercept + slope * X_ij + error)
+        }
+    	  
+    # error = rnorm(nrow(.), mean = 0, sd = sqrt(sd_error^2 + parse_number(evar.dsn)*(X_ij-min(X_ij))))
+    #skewed + hetero
+        if (endsWith(evar.dsn, "skew") ==TRUE){
+          #mildly skewed
+          p_df<-c(mean=0,variance= sd_error^2 + parse_number(evar.dsn)*(sim_design$X_ij-min(sim_design$X_ij)),skewness=1.5, kurtosis = 6)
+          p<-vec_p2(m, p_df)
+
+          error <- vec.rpearson(1, moments = p)
+
+          
+          # e <- rpearson(n = nsim*n, moments = p)
+          sim_df <- left_join(sim_design, re_df, by = "group") %>%
+  mutate(
+         
+         Y_ij = b0 + b1 * X_ij + b2 * Z_ij + intercept + slope * X_ij + error)
+        	
+        }
+          
+      	 return( sim_df ) 
+    	}
+ 
+    
+```
+
+
+
+```{r}
+balanced.df<-generate_data(50, 1, 0.5)
+evar.dsn <- c(0,2,4,8, "0_skew", "2_skew", "4_skew", "8_skew") 
+nsim <- 20
+
+```
+
+```{r}
+set.seed(98765)
+model_resid <- vector("list", length = nsim)
+sim_model <- vector("list", length = nsim)
+first_resid <- vector("list", length = nsim)
+sec_resid <- vector("list", length = nsim)
+l <- vector("list", length = 0)
+
+for(k in seq_along(evar.dsn)){
+# sim dfs 
+sim.fm <- replicate(nsim, sim.hlmvar_norm(balanced.df, evar.dsn = evar.dsn[[k]]))
+  
+  for(i in 1:nsim) {
+      sim.model[[i]] <- lmer(Y_ij ~ X_ij + Z_ij + (X_ij | group), data = sim.fm[,i], control = lmerControl(calc.derivs = FALSE))
+      #level1 resid
+      first_resid[[i]] <- hlm_resid(sim.model[[i]],standardize = F, include.ls = TRUE)
+      #level2 resid
+      sec_resid[[i]] <- hlm_resid(sim.model[[i]], level = names(sim.model[[i]]@flist), include.ls = TRUE)
+      
+      #mahalanobis
+      maha[[i]]<-chi_gof(sim.model[[i]])
+      
+      #add to list 
+      l[[length(l)+1]] <-list(first_resid[[i]], sec_resid[[i]], maha[[i]])
+      
+      #name components
+      nms <- c ("first_resid", "second_resid", "mahalanobis")
+      names(l[[i]]) = nms 
+ 
+}
+    saveRDS(l, paste("simulated_models/", evar.dsn[k], "_balanced_models.RDS", sep = ""))
+}
+```
+
+
+```{r load-heteroscadasticity-data}
+`var0` <- readRDS("simulated_models/0_balanced_models.RDS")
+`var2` <- readRDS("simulated_models/2_balanced_models.RDS")
+`var4` <- readRDS("simulated_models/4_balanced_models.RDS")
+`var8` <- readRDS("simulated_models/8_balanced_models.RDS")
+`var0_skew` <- readRDS("simulated_models/0_skew_balanced_models.RDS")
+`var2_skew` <- readRDS("simulated_models/2_skew_balanced_models.RDS")
+`var4_skew` <- readRDS("simulated_models/4_skew_balanced_models.RDS")
+`var8_skew` <- readRDS("simulated_models/8_skew_balanced_models.RDS")
+
+```
+
+
+## bp test
+```{r Breusch-Pagan-Test}
+
+registerDoParallel(cores=3)
+
+#0
+`var0tests`<- foreach(i = 1:nsim) %dopar% {
+    test<-bp(`var0`[i][[1]][[1]]$.resid, `var0`[i][[1]][[1]]$.fitted)
+    test["p_val"]
+}
+`bpvar0_reject` <- `var0tests`[c(which(`var0tests` < 0.05))]
+length(`bpvar0_reject`)/nsim
+
+saveRDS(`var0tests`,file="var0.RDS")
+
+
+
+#0skew
+`var0skew_tests`<- foreach(i = 1:nsim) %dopar% {
+    test<-bp(`var0_skew`[i][[1]][[1]]$.resid, `var0_skew`[i][[1]][[1]]$.fitted)
+    test["p_val"]
+}
+`bpvar0skew_reject` <- `var0skew_tests`[c(which(`var0skew_tests` < 0.05))]
+length(`bpvar0skew_reject`)/nsim
+
+saveRDS(`var0skew_tests`,file="var0skew.RDS")
+
+
+#2
+`var2tests`<- foreach(i = 1:nsim) %dopar% {
+    test<-bp(`var2`[i][[1]][[1]]$.resid, `var2`[i][[1]][[1]]$.fitted)
+    test["p_val"]
+}
+`bpvar2_reject` <- `var2tests`[c(which(`var2tests` < 0.05))]
+length(`bpvar2_reject`)/nsim
+saveRDS(`var2tests`,file="var2.RDS")
+
+
+#2skew
+`var2skew_tests`<- foreach(i = 1:nsim) %dopar% {
+    test<-bp(`var2_skew`[i][[1]][[1]]$.resid, `var2_skew`[i][[1]][[1]]$.fitted)
+    test["p_val"]
+}
+`bpvar2skew_reject` <- `var2skew_tests`[c(which(`var2skew_tests` < 0.05))]
+length(`bpvar2skew_reject`)/nsim
+saveRDS(`var2skew_tests`,file="var2skew.RDS")
+
+#4
+`var4tests`<- foreach(i = 1:nsim) %dopar% {
+    test<-bp(`var4`[i][[1]][[1]]$.resid, `var4`[i][[1]][[1]]$.fitted)
+    test["p_val"]
+}
+`bpvar4_reject` <- `var4tests`[c(which(`var4tests` < 0.05))]
+length(`bpvar4_reject`)/nsim
+saveRDS(`var4tests`,file="var4.RDS")
+
+
+#4skew
+`var4skew_tests`<- foreach(i = 1:nsim) %dopar% {
+    test<-bp(`var4_skew`[i][[1]][[1]]$.resid, `var4_skew`[i][[1]][[1]]$.fitted)
+    test["p_val"]
+}
+`bpvar4skew_reject` <- `var4skew_tests`[c(which(`var4skew_tests` < 0.05))]
+length(`bpvar4skew_reject`)/nsim
+saveRDS(`var4skew_tests`,file="var4skew.RDS")
+
+
+#8
+`var8tests`<- foreach(i = 1:nsim) %dopar% {
+    test<-bp(`var8`[i][[1]][[1]]$.resid, `var8`[i][[1]][[1]]$.fitted)
+    test["p_val"]
+}
+`bpvar8_reject` <- `var8tests`[c(which(`var8tests` < 0.05))]
+length(`bpvar8_reject`)/nsim
+saveRDS(`var8tests`,file="var8.RDS")
+
+
+#8skew
+`var8skew_tests`<- foreach(i = 1:nsim) %dopar% {
+    test<-bp(`var8_skew`[i][[1]][[1]]$.resid, `var8_skew`[i][[1]][[1]]$.fitted)
+    test["p_val"]
+}
+`bpvar8skew_reject` <- `var8skew_tests`[c(which(`var8skew_tests` < 0.05))]
+length(`bpvar8skew_reject`)/nsim
+saveRDS(`var8skew_tests`,file="var8skew.RDS")
+
+```
+
+
+
+
+
+
