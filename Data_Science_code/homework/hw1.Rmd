@@ -1,0 +1,245 @@
+---
+title: "Homework 1"
+output: pdf_document
+---
+
+## Name: Yucheng Yang 
+
+## I worked with: 
+
+**Click the "Knit" button in RStudio to knit this file to a pdf.**
+
+--------------------------------------------
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Problem 1: Markdown output
+
+
+### a. 
+
+*answer:* 
+*2, 3, 4 would be produced as the output and the original code would be hidden when knitted.*
+
+
+
+### b.
+
+*answer:* 
+*1, 2, 3 would be produced as the output and the original code would be hidden when knitted.*
+
+
+---------------------------
+
+## Problem 2: Logical vectors 
+
+### a.
+
+*answer:* 
+*Here "x" of 1 means food that is both orange colored and is candy, "x" of 0 means food that's either orange colored or is candy or neither.* 
+
+```{r}
+orange <- c(TRUE, TRUE, FALSE, FALSE, TRUE)
+candy <- c(FALSE, FALSE, TRUE, FALSE, TRUE)
+table(orange, candy)
+x <- orange*candy
+x
+```
+
+
+### b. 
+
+*answer:* 
+*Here "y" of 1 means food that is neither orange colored nor candy, "y" of 0 means food that's either orange colored or is candy or both.*
+
+```{r}
+y <- (1-orange)*(1-candy)
+y
+```
+
+### c. 
+
+*answer:* 
+*Here "z" of 1 means food that is  orange colored and not candy, "z" of 0 means food that's not orange colored.*=
+
+```{r}
+z <- orange*(1-candy)
+```
+
+-------------------------------------------
+
+## Problem 3: Coercion
+
+### a.
+
+*answer:* 
+*The output would be 3, 4, 5. This command generates items at the second entry to the fourth entry in obj1. *
+
+
+
+### b. 
+
+*answer:* 
+*The output would be 2,3,5,6,7,8,10. This command generates all items in obj1 except the one at the third entry.*
+
+
+
+
+### c. 
+
+*answer:* 
+*The output would be 1,4,3,6,5,8,7,10,9 but with a warning message that "the longer object length is not a multiple of the shorter object length". This command will add up the 1st and 2nd items from each object together, and then recycle the shorter object and add up the 3rd and 4th items from obj1 with the 1st and 2nd items from the new recycled obj2. This process will repeat until all items in the longer object obj1 run out. *
+
+
+
+
+### d.
+
+*answer:* 
+*The output would be -2,3,-4,5,-6,7,-8,9,-10 but with a warning message that "the longther object length is not a multiple of the shorter object length". This command will multiply the 1st and 2nd items from each object together, and then recycle the shorter object and add up the 3rd and 4th items from obj1 with the 1st and 2nd items from the new recycled obj2. This process will repeat until all items in the longer object obj1 run out. *
+
+
+
+### e.
+
+*answer:* 
+*The output would be 1.  This command assigns numeric values to the logic vector in obj3 in that "True" as 1 and "False" as 0, and then take the sum of all items in obj3.*
+
+
+-----------------------------------------------
+
+## Problem 4: Data frames
+
+
+### a. 
+
+*answer:* 
+*The class of object a is charater.*
+
+```{r}
+library(dslabs)
+data(murders)
+a<-murders$abb
+a
+class(a)
+```
+
+### b. 
+
+*answer:*
+*a and b are not identical.*
+
+```{r}
+b<-murders["abb"]
+b
+identical(a,b)
+```
+
+### c. 
+
+*answer:* 
+*The class of murders[1:2,1:4] is data frame.*
+
+```{r}
+class(murders[1:2,1:4])
+```
+
+### d. 
+
+*answer:* 
+* Because all entries in a matrix has to be the same type, and the default setting of R will automatically convert all items to the most complex type, which is character type.*
+
+
+--------------------------
+
+## Problem 5: Lists
+
+
+### a. 
+
+*answer:* 
+*command: mylist[[1]] *
+
+```{r}
+mylist <- list(x1="sally", x2=42, x3=FALSE, x4=1:5)
+mylist[[1]]
+```
+
+### b. 
+
+*answer:* 
+*command: mylist[[2]] *
+
+```{r}
+mylist[[2]]
+```
+
+### c. 
+
+*answer:* 
+*command: mylist[[4]][3:4] *
+
+```{r}
+mylist[[4]][3:4]
+```
+
+### d. 
+
+*answer:* 
+*length is 5*
+
+```{r}
+length(mylist[[4]])
+```
+
+---------------------------------
+
+## Problem 6: More lists
+
+### a. 
+
+
+*answer:* 
+*This command generate a list.*
+
+```{r}
+class(mylist[1])
+```
+
+
+### b. 
+
+*answer:* 
+*This command generate a character object.*
+
+```{r}
+class(mylist[[1]])
+```
+
+### c. 
+`
+*answer:* 
+
+*This command  shows the most complex type among all objects stored in mylist, which is character type.*
+```{r}
+class(unlist(mylist))
+```
+
+
+---------------------------------------
+
+## Problem 7: Yet more lists
+
+*answer:* 
+* Command a combines mylist and a new list x5 as the new mylist, which generates a list of length 2 containing two lists within itself, and it wouldn't achieve what we want; 
+command b adds a new list x5 into the mylist, which generates a list of length 2 2 containing the old mylist and the added list x5, and again doesn't meet our requirements.*
+
+```{r}
+mylist <- list(mylist, x5=c(1,-7,3))
+length(mylist)
+mylist$x5 <- c(1,-7,3)
+length(mylist)
+```
