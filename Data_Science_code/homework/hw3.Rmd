@@ -1,0 +1,280 @@
+---
+title: "Homework 3"
+output: pdf_document
+---
+
+## Name: Yucheng Yang
+
+## I worked with: 
+
+**Click the "Knit" button in RStudio to knit this file to a pdf.**
+
+--------------------------------------------
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, 
+                      warning = FALSE, message = FALSE)
+# add packages here 
+library(dplyr)
+library(ggplot2)
+library(babynames)
+```
+
+
+
+
+## Problem 1: explain command (no R needed)
+
+### a. 
+
+*answer:*
+
+ m | w 
+-- | --
+10 | 4
+ 3 | 1
+ 7 | 3
+
+
+### b. 
+
+*answer:* 
+classType | m | w | ratioW
+------ | -- | -- | --
+C | 10 | 4 | 0.16
+C | 3 | 1 | 0.04
+C | 7 | 3 | 0.12
+S | 2 | 7 | 0.28
+S | 7 | 10 | 0.4
+
+
+
+
+```{r}
+4/25
+1/25
+3/25
+7/25
+10/25
+```
+
+
+### c. 
+
+*answer:* 
+classType | m | w | ratioW
+------ | -- | -- | --
+C | 10 | 4 | 0.5
+C | 3 | 1 | 0.125
+C | 7 | 3 | 0.375
+S | 2 | 7 | 0.412
+S | 7 | 10 | 0.59
+```{r}
+4/(4+1+3)
+1/(4+1+3)
+3/(4+1+3)
+7/17
+10/17
+```
+
+
+### d. 
+
+*answer:* write your answer here and your Markdown table below
+
+     Y
+   | --
+ C | 28
+ S | 26
+ 
+```{r}
+10+4+3+1+7+3
+2+7+7+10
+```
+ 
+
+
+### e. 
+
+*answer:* write your answer here and your Markdown table below
+classType | m | w | X | Y
+------ | -- | -- | -- | -- 
+C | 10 | 4 | 14 | 28
+C | 3 | 1 | 4 | 28
+C | 7 | 3 | 10 | 28
+S | 2 | 7 | 9 | 26
+S | 7 | 10 | 17 | 26
+
+
+------------------------------------------------
+
+## Problem 2: explain error (no R needed)
+
+*answer:* write your answer here 
+
+Variable X=w+m has an unique for every class but Y=sum(w+m) has unique value for every class type, so X and Y have different row number, which is something summarize command don't know how to deal with.
+
+------------------------------------------------
+
+## Problem 3 (give commands, no R needed)
+
+### a. 
+
+*answer:* write your answer below
+
+```
+mydata %>% 
+  mutate(prop = w/(w+m))
+```
+
+### b. 
+
+*answer:* write your answer below
+
+```
+mydata %>% 
+  mutate(all=sum(m+w))
+  group_by(classType) %>%
+  mutate(prop = sum(w)/all)
+```
+
+------------------------------------------------
+
+## Problem 4: babynames 
+
+### a. 
+
+*answer:* write your answer here
+The value of `nrow(babynames_Kat)` is 138, representing that the name Katherine appeared in 138 years of the records between 1880 to 2017. 
+```{r}
+a<-babynames_Kat<-babynames %>% 
+  filter(name=="Katherine", sex=="F") 
+nrow(babynames_Kat)
+```
+
+### b. 
+
+
+*answer:* write your answer here
+The value is 552, representing that names "Katherine","Catherine", "Katie" or "Kate" owned by females appeared every year in the record from 1880 to 2017. 
+```{r}
+babynames_Kat<-babynames %>% 
+  filter(name%in%c("Katherine","Catherine","Katie","Kate"), sex=="F") 
+nrow(babynames_Kat)
+```
+
+### c. 
+
+*answer:* write your answer here
+The name "Katherine" were used most frequently in 1920,1950 and 1990, and fluctuate in general from 1880 to 2017;
+The name "Catherine" were used most frequently in 1920,1958, and fluctuate in general from 1880 to 2017;
+The name "Katie" were used most frequently in 1982, before that it weren't used much compared to the above two;
+The name "Kate" were used more frequently after 1980, before that it weren't used much compared to the other three.
+
+```{r}
+babynames_Kat<-babynames %>% 
+  filter(name%in%c("Katherine","Catherine","Katie","Kate"), sex=="F") %>% 
+  group_by(year) %>% 
+  mutate(tot=sum(n))
+Katherine<-babynames %>% 
+  filter(name=="Katherine", sex=="F") %>% 
+  group_by(year) %>% 
+ mutate(tot1=sum(n))
+Catherine<-babynames %>% 
+  filter(name=="Catherine", sex=="F") %>% 
+  group_by(year) %>% 
+ mutate(tot2=sum(n))
+Katie<-babynames %>% 
+  filter(name=="Katie", sex=="F") %>% 
+  group_by(year) %>% 
+ mutate(tot3=sum(n))
+Kate<-babynames %>% 
+  filter(name=="Kate", sex=="F") %>% 
+  group_by(year) %>% 
+ mutate(tot4=sum(n))
+  ggplot()+geom_point(Katherine, mapping= aes(x=year,y=tot1),color="blue")+geom_point(Catherine, mapping= aes(x=year,y=tot2),color="red")+geom_point(Katie, mapping= aes(x=year,y=tot3),color="green")+geom_point(Kate, mapping= aes(x=year,y=tot4))
+  scale_x_continuous(breaks=seq(1880,2017,by=10))
+```
+
+### d. 
+
+
+*answer:* write your answer here
+Blair and Elisa have names with female/male proportions closest to 0.5.
+```{r}
+babynames %>% 
+  group_by(sex,name) %>% 
+  summarise(eachtot=sum(n)) %>% 
+  filter(eachtot >= 10000) %>% 
+  group_by(name) %>% 
+  mutate(bal=eachtot/sum(eachtot)) %>% filter(bal>0.495,bal<0.505)
+  
+```
+
+
+------------------------------------------------
+
+## Problem 5: restaurant violations
+
+### a. 
+
+*answer:* 
+
+
+```{r}
+data("Violations", package = "mdsr")
+p5<-Violations%>%
+  tidyr::drop_na(score)%>%
+  filter(boro == "MANHATTAN")%>%
+  dplyr::group_by(zipcode)%>%
+  dplyr::summarize(inspections = n(), mscore = median(score)) %>%
+  filter(inspections >= 50)
+p5
+  
+```
+
+### b. 
+
+*answer:* write your answer here
+It seems that when there are less inspections done, the median score tend to have more variability; when there's more inspections done, the median score tend to to more stable and mostly fluctuate between 15 to 18.
+```{r}
+ggplot(p5,aes(x=inspections,y=mscore))+geom_point()+geom_smooth(se=FALSE)+ggtitle("Restaurant Violations in Manhattan")+xlab("Number of inspections")+ylab("Median score")
+```
+
+
+------------------------------------------------
+
+
+## Problem 6: flights
+
+Use the `flights` data frame from the `nycflights13` package to answer the questions below. (see help `?nycflights13::flights` for more details) Use `dplyr` to answer the questions below. 
+### a.
+*answer:* write your answer here
+
+Plane N725MQ traveled the most from NYC airports in 2013.
+```{r}
+data("flights", package = "nycflights13")
+flights %>% group_by(tailnum) %>% 
+  summarise(ct=n()) %>% slice_max(ct,n=5)
+```
+
+### b. 
+*answer:* write your answer here
+We tend to see most flights from NYC on July since July has the highest median number of flights per day.
+```{r}
+library(lubridate)
+s1<-flights %>% mutate(mth = month(time_hour, label = TRUE)) %>% group_by(month,day) %>% mutate(cts=n())
+s1
+ggplot(s1,aes(x=mth,y=cts))+geom_boxplot()
+```
+
+### c. 
+
+*answer:* write your answer here
+Saturdays tend to have the fewest number of flights from NYC.
+```{r}
+flights %>% mutate(dow = wday(time_hour, label = TRUE)) %>% 
+  group_by(month,day) %>% 
+  mutate(cts2=n()) %>% 
+  ggplot(aes(x=dow,y=cts2))+geom_boxplot()
+```
