@@ -1,0 +1,393 @@
+---
+title: "Homework 5"
+output: pdf_document
+---
+
+## Name: Yucheng Yang
+
+## I worked with: 
+
+**Click the "Knit" button in RStudio to knit this file to a pdf.**
+
+--------------------------------------------
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, 
+                      warning = FALSE, message = FALSE, out.width = 50%)
+library(tidyverse)
+library(lubridate)
+library(babynames)
+library(stringr)
+```
+
+## Assignment prompt
+
+
+## Problem 1: Energy
+
+### a.
+
+*answer:*
+
+```{r}
+energy <- read_csv("EnergyData1516.csv",
+col_type = cols(
+.default = col_double(),
+Timestamp = col_datetime(format = ""),
+dayWeek = col_factor(levels=c("Mon","Tues","Wed","Thurs","Fri","Sat","Sun"))
+)
+)
+energy_narrow <- energy %>%
+pivot_longer(
+cols = `100_Nevada_Street`:Wilson_House,
+names_to = "building",
+values_to = "energyKWH"
+)
+mean_use<-energy_narrow %>% mutate(date=make_date(year, month, dayOfMonth)) %>% 
+  filter(building=="Laird_Hall") %>% 
+  group_by(date) %>% 
+  summarise(mn=mean(energyKWH), standard_dev=sd(energyKWH))
+mean_use
+```
+
+
+### b.Create a time series (line) graph of mean daily energy use for Laird Hall and add a ribbon geometry layer with limits that are one standard deviation above and below the mean energy use. In the ribbon geom, use a transparency of 0.5 and use color to denote month. Describe the trends observed for both mean usage and SD of usage. 
+
+*answer:*
+Looking at the line graph, we can see that from October to the beginning of April the mean usage tend to fluctuate regularly, and the standard deviation seems to be approximately similar for each month. From April to mid-July, the mean usage level was much lower than before and still fluctuate regularly but on a smaller scale with smaller standard deviation as well. 
+```{r}
+mean_use<-mean_use %>% mutate(mon=month(date))
+mean_use$min = mean_use$mn -mean_use$standard_dev
+mean_use$max = mean_use$mn +mean_use$standard_dev
+mean_use %>% ggplot(aes(x=date, y=mn))+geom_line()+
+  geom_ribbon(aes(ymin=min, ymax=max,color = as.character(mon)), alpha=0.5 )+
+  theme(legend.position="none")
+```
+
+
+### c. Find the day with a large spike in SD in November 2015. Explore the data for this day to explain why the SD is so large. 
+
+*answer:*
+11.4 in 2015 has a large spike in sd in November 2015. It seems that starting from 7am to about 5pm there's a surge in energy useage, and the rest of time there was rather low level of usage, which leads to high sd for this day's energy usage. 
+```{r}
+mean_use %>% filter(mon=="11")  %>% ggplot(aes(x=date, y=standard_dev))+geom_line()
+mean_use %>% filter(mon=="11")  %>% slice_max(standard_dev)
+energy_narrow %>% filter(month==11, dayOfMonth==04, building=="Laird_Hall") %>% ggplot(aes(x=timeHour, y=energyKWH))+
+  geom_line()
+```
+
+
+### d. Martha Larson says that the Laird energy meter was adjusted in April 2016 because it was reading too high. Use the drop in daily usage to determine what day in April this adjustment occurred.
+
+*answer:*
+It seems like on 4.12 there was a significant drop in average energy usage, so the meter adjustment could have happened on 4.12. 
+```{r}
+energy_narrow %>% filter(month==4,building=="Laird_Hall" ) %>% 
+  group_by(dayOfMonth) %>% 
+  summarise(tot=sum(energyKWH, na.rm=TRUE)) %>% 
+  mutate(drop=lag(tot)-tot) %>% 
+  slice_max(drop)
+```
+
+
+### e. Martha says the higher readings in Laird are due to an incorrect meter that was reading too high. To correct these "too high" readings, we need to multiply them by a factor of 0.16. Do this to get "corrected" average and SD daily readings (for this time period), then replot the graph from part (b). Does this correction to the pre-April correction readings seem to bring the "too high" readings back in line with the post-April correction readings? 
+
+*answer:*
+Adjusting the "too high" readings with a factor of 0.16 brings them back in line with the average April readings. 
+
+```{r}
+energy_narrow$logi<-ifelse(energy_narrow$dayOfMonth<=12&energy_narrow$month==4, 0.16, 1)
+#View(energy_narrow)
+new<-energy_narrow %>% 
+  filter(building=="Laird_Hall") %>% 
+  mutate(new_read=energyKWH*logi)
+mean_use2<-new %>% mutate(date=make_date(year, month, dayOfMonth)) %>% 
+  filter(building=="Laird_Hall") %>% 
+  group_by(date) %>% 
+  summarise(mn=mean(new_read), standard_dev=sd(new_read))
+mean_use2<-mean_use2 %>% mutate(mon=month(date))
+mean_use2$min = mean_use2$mn -mean_use2$standard_dev
+mean_use2$max = mean_use2$mn +mean_use2$standard_dev
+mean_use2 %>% ggplot(aes(x=date, y=mn))+geom_line()+
+  geom_ribbon(aes(ymin=min, ymax=max,color = as.character(mon)), alpha=0.5 )+
+  theme(legend.position="none")
+  
+```
+
+
+------------------------------------------------------------------------
+
+
+## Problem 2: more babies
+
+### a. Consider the `babynames` data again. Create a line graph showing the proportion of female **names** starting in "A" over time. Add the proportion of "A" names for males. Comment on any trends observed.
+
+*answer:*
+For girls, the names starting from "A" had its lowest proportion in around 1960, and had been increasing since then. For boys, names starting with "A" had its lowest proportion also around 1960, and had been increasing since then but on a smaller scale compared to the increase of female names starting from "A". 
+```{r}
+pattern<-"^[A][a-z]+"
+#View(babynames)
+babynames  %>% 
+  group_by(year, sex) %>% 
+ summarise(prop=mean(str_detect(name, pattern))) %>% 
+  ggplot(aes(x=year, y=prop))+
+  geom_line(aes(color=sex))
+  
+  
+```
+
+### b. Repeat (a) but instead of computing the proportion of names in a given year, compute the proportion of babies (male/female) in a given year that start with the letter "A". Create a line graph showing these trends and comment on trends observed.
+
+*answer:*
+The proportion of babies with names starting with "A" was decreasing since 1880 and hit its lowest at around year 1948. After that, the proportion had been increasing till 2017. 
+```{r}
+babynames  %>% 
+  group_by(year) %>% 
+  mutate(tot=sum(n)) %>% 
+  filter(str_detect(name, pattern)==TRUE) %>% 
+ summarise(prop_baby=sum(n)/tot) %>% 
+  ggplot(aes(x=year, y=prop_baby))+
+  geom_line()
+  
+```
+
+
+### c. Plot average name length over time for both male and female names. Common on any trends observed. 
+
+*answer:*
+On average, the name length of female names are always longer than males'. Both female and male name lengths had been increasing since 1880 till around 1920 when the speed of increase slowed down, and stayed relatively constant till 1960 when they started increasing again. At around 1987, the name lengths for both female and male reached a climax point and was decreasing since then. 
+```{r}
+babynames %>% group_by(year, sex) %>% 
+  summarise(ave=mean(str_length(name))) %>% 
+  ggplot(aes(x=year,y=ave ))+geom_line(aes(color=sex))
+  
+```
+
+------------------------------------------------------------------------
+
+## Problem 3: Regular expressions
+
+### a. Create a regular expression to find all words that start with three consonants. Check your regex pattern with
+
+*answer:*
+
+```{r}
+p1<-"[^aeiou]{3}"
+x <- c("do", "stuck", "string")
+str_detect(x, p1)
+```
+
+### b. `words` in the `stringr` package is a vector of 980 words. What word, or words, in this vector has the highest number of vowels? What word has the highest proportion of vowels?
+
+*answer:*
+So word "appropriate", "associate", "available", "colleague", "encourage", "experience", "individual", "television" has the highest number of vowels (5).
+Word "a" has the highest proportion of vowels. 
+```{r}
+p2<-"[aeiou]"
+words2<-data.frame(words)
+words2 %>% group_by(words) %>% 
+  mutate(ct=str_count(words, p2), 
+         lth=str_length(words), prop=ct/lth) %>% 
+  arrange(desc(ct))
+words2 %>% group_by(words) %>% 
+  mutate(ct=str_count(words, p2), 
+         lth=str_length(words), prop=ct/lth) %>% 
+  arrange(desc(prop))
+```
+
+### c. Find the words in `words` that are found with the following expression: `"^(.)(.)(.).*\\2\\1$"`. Give a general explanation of the type of word pattern that this finds. 
+
+
+*answer:*
+Words that have at least 5 letters with the last letter same as the first letter and the second last letter same as the second letter.  
+```{r}
+p3<-"^(.)(.)(.).*\\2\\1$"
+str_subset(words, p3)
+```
+
+### d. `sentences` in the `stringr` package is a vector of 720 "Harvard sentences" used for standardized test of voice (see help file). What proportion of words in `sentences` are in the `words` vector? (Don't forget to deal with upper case letters and puncuation.)
+
+*answer:*
+About 75% of the words in `sentences` vector are also in the `words` vector. 
+```{r}
+sent<-sentences %>% str_to_lower() %>% 
+  str_trim() %>% 
+  str_split( pattern="\\s") %>% 
+  unlist() %>% 
+  str_replace_all("[:punct:]", "") 
+  
+(length(sent)-length(setdiff(sent, words)))/length(sent)
+```
+
+
+------------------------------------------------------------------------
+
+## Problem 4: Tornadoes
+The data `http://math.carleton.edu/kstclair/data/TxTornadoes11-15.txt` is a comma delimited text file containing data about tornado touchdowns in Texas from 2011-15.
+
+### a. Read in the data for this problem into R using the `read_csv` command and specify the column type of factor for `Fscale` with levels ordered as `c("EF0","EF1","EF2","EF3","EF4","EF5")`. 
+
+
+*answer:*
+
+```{r}
+tornado<-read_csv("http://math.carleton.edu/kstclair/data/TxTornadoes11-15.txt", 
+ col_types=cols(
+   Fscale=col_factor(levels=c("EF0","EF1","EF2","EF3","EF4","EF5"))
+ ) 
+)
+#View(tornado)
+```
+
+
+### b. Verify that `BeginTime` is a character vector. The entries are written in `hhmm` format with no `:` between hours and minutes. To create an `hm` time object in `lubridate`, we will need to add the `:` between `hh` and `mm`. Use functions from `stringr` to add the `:` between hours and minutes, then combine these `hh:mm` times with `BeginData` to create a time object (using `lubridate`). 
+
+
+*answer:*
+
+```{r}
+str(tornado)
+new_tor<-tornado %>% 
+  mutate(hm=str_c(str_sub(BeginTime,1,2), ":", str_sub(BeginTime,3,4))) %>% 
+  mutate(full=str_c(BeginDate, "\\s", hm)) %>% 
+  mutate(date=mdy_hm(full))
+  
+  
+```
+
+### c. What time of day to tornadoes tend to occur? Use a graphical display to help answer this question.
+
+*answer:*
+Looking at the hours that tornadoes tend to occur, we see that at 17 or 18 hrs of a day are the time that we see tornadoes happening the most often. 
+```{r}
+#View(new_tor)
+temp<-new_tor %>% group_by(hr=str_sub(hm,1,2)) %>% 
+  summarise(n=n())
+temp
+ggplot(temp, aes(x=hr,y = n))+geom_bar(stat="identity")
+```
+
+
+### d. 
+The enhanced Fujita scale variable, `Fscale`, measures tornado severity:
+
+F Scale | Speed 
+--------|-------------------
+EF0     | 65-85 mph (light damage)
+EF1     | 86-110 mph (moderate damage)
+EF2     | 111-135 mph (considerable damage)
+EF3     | 136-165 mph (severe damage)
+EF4     | 166-200 mph (devastating damage)
+EF5     | > 200 mph (incredible damage)
+
+How strong were the tornadoes that hit Texas? Is there any relationship between strength of tornado and hour it hit?
+
+*answer:*
+The tornado that hit Texas is on EF0 scale, the wind speed is about 65-85 mph.
+Looking at the graph, it seems that severe tornadoes seem to happen mostly from at 6pm or in general later in the day, whereas less severe ones could happen at any time of a day.
+```{r}
+new_tor %>% filter(str_detect(EndLocation, "TEXAS")) %>% 
+  select(Fscale)
+new_tor %>% group_by(hr=str_sub(hm,1,2), Fscale) %>% 
+ summarise(n=n()) %>% 
+  ggplot(aes(x=hr, y=Fscale))+geom_point(aes(color=Fscale))
+                      
+```
+
+
+### e. Add the beginning coordinates of each tornado to the map of Texas given below. Use color and size of points to denote the strength of the tornado using the numeric. Choose a sequential color palette to reflect the ordered nature of the  `Fscale` variable.
+
+*answer:*
+
+```{r, eval=FALSE}
+ggplot(tornado) +
+    borders(database = "state", regions = "Texas") +
+    coord_quickmap() +
+  geom_point(aes(x=BeginLon,  y=BeginLat, color=Fscale, size=Fscale))+
+  scale_color_brewer("seq")
+```
+
+### f. Modify your map from part 5 to connect beginning and ending locations for each tornado, using color to denote the strength of the tornado. Do not include a `points` geom for beginning and end because that will likely obscure the path. (Here we are approximating the actual path of a tornado with a straight line.) 
+
+*answer:*
+
+```{r}
+ggplot(tornado) +
+    borders(database = "state", regions = "Texas") +
+    coord_quickmap() +
+  geom_segment(aes(x=BeginLon,  y=BeginLat,xend=EndLon, yend=EndLat, color=Fscale))+
+  scale_color_brewer("seq")
+```
+
+--------------------------------------------------------------
+
+## Problem 5: Tweets
+Consider the "classic" (i.e. old) Trump twitter data from 2016:
+```{r}
+tweets <- read_csv("http://math.carleton.edu/kstclair/data/TrumpTweetData.csv")
+```
+
+### a.Compute the number of web links per tweet. Which tweet `source` has the highest number of links in a tweet? Which tweet `source` has the highest proportion of (at least one) web links?
+
+
+*answer:*
+There's 0.43 web links per tweet.
+
+Tweets from iPhone has the highest number of links in a tweet(4 tweets).
+
+Source NA has the highest proportion of web links. 
+```{r}
+link <-"https://t.co/[A-Za-z\\d]+"
+tweets %>% summarise(wt=sum(str_count(text, link)),tot=n(), per=wt/tot)
+tweets %>% group_by(source) %>% 
+  summarise(ct=str_count(text, link)) %>% 
+ arrange(desc(ct))
+#proportion
+tweets%>% 
+  group_by(source) %>% 
+  summarise(ct=sum(str_count(text, link)), n=n(), prop=ct/n ) %>% 
+  arrange(desc(prop))
+```
+
+
+### b.Extract all Twitter handles (starting with @) from Trump tweets. Find  the 10 most used handles and create a bar graph that shows the number of times these Twitter names are used from highest to lowest frequency.  
+
+
+*answer:*
+The 10 most used handles are "realDonaldTrump", "FoxNews", "nytimes", "CNN", "megynkelly", "foxandfriends", "oreillyfactor", "EricTrump", "MikePence", and "seanhannity".
+```{r}
+p<-"^@"
+split<-tweets$text %>% 
+  str_split( pattern="\\s") %>% 
+  unlist() %>% 
+  str_subset( p) %>% 
+  str_remove_all(pattern="[:punct:]") 
+  
+freq<-data.frame(split) %>% group_by(split) %>% 
+  summarise(ct=n()) %>% 
+  slice_max(ct, n=10) 
+ggplot(freq, aes(x=ct, fct_rev(fct_reorder(split, ct))) )+geom_bar(stat="identity")
+```
+
+
+### c. Repeat question (a) but look for strings that represent times rather than web links. (Times are likely given when announcing an upcoming event on Twitter.)
+
+*answer:*
+There's 0.039 time strings per tweet.
+
+Tweets from iPhone has the highest number of time strings in a tweet.(4 time strings)
+
+Tweets from iPhone has the highest proportion of time strings among all sources. 
+```{r}
+time <-"\\d(pm|am)|\\d\\d:\\d\\d|\\d:\\d\\d(pm|am)|\\d(PM|AM)|\\d:\\d\\d(PM|AM)|\\d\\d(pm|am)|\\d\\d(PM|AM)"
+#per
+tweets %>% summarise(wt=sum(str_count(text, time)),tot=n(), per=wt/tot)
+#highest number 
+tweets %>% group_by(source) %>% 
+  summarise(ct=str_count(text, time)) %>% 
+ arrange(desc(ct))
+#proportion
+tweets %>% group_by(source) %>% 
+  summarise(ct=sum(str_count(text, time)), n=n(), prop=ct/n ) %>% 
+  arrange(desc(prop))
+```
