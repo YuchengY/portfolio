@@ -1,0 +1,439 @@
+---
+title: "Homework 8"
+output: pdf_document
+---
+
+## Name: Yucheng Yang 
+
+## I worked with: 
+
+
+--------------------------------------------
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, 
+                      warning = FALSE, message = FALSE)
+library(tidyverse)
+library(ggplot2)
+library(caret)
+library(class)
+library(partykit)
+library(NHANES)
+library(forcats)
+library(lme4)
+library(rpart)
+library(dplyr)
+```
+
+
+## Assignment prompt
+
+
+## Problem 1
+
+
+
+
+### a. 
+
+
+
+*answer:*
+
+```{r}
+data("NHANES", package = "NHANES")
+#View(NHANES)
+NHANESf<- NHANES %>% 
+  mutate(PregnantNow = fct_recode(PregnantNow, "yes"="Yes", "no"="No", NULL="Unknown" )) %>% 
+  mutate(MaritalStatus= fct_collapse(MaritalStatus, married = "Married", other_level = "other"))  %>% 
+  drop_na(Age, Education, HHIncomeMid, MaritalStatus, BMI, Height, PregnantNow, MaritalStatus)
+           
+```
+
+
+### b. 
+
+
+
+*answer:*
+
+```{r}
+set.seed(34569)
+n<-nrow(NHANESf)
+train_index <- sample(1:n, size=1000)
+train <- NHANESf %>% slice(train_index)
+test <- NHANESf %>% slice(-train_index)
+nrow(test)
+```
+
+
+### c.  
+
+
+
+
+*answer:*
+
+Since there's quite some overlap between the measure for Y=0 (not pregnant) and Y=1 (pregnant), our classification model is wanting at this point. 
+
+```{r}
+train_results <- glm(PregnantNow ~ Age + Education+ HHIncomeMid + MaritalStatus+ BMI+ Height, data=train, family = binomial)
+test <- test %>%
+  mutate(prob = predict(train_results, newdata =test, type ="response")) 
+ggplot(test, aes(x=prob, fill=PregnantNow)) + geom_density(alpha = .3) +
+labs(x=
+"predicted pregnant probability"
+, fill =
+"truth")
+```
+
+
+### d. 
+
+
+
+
+*answer:*
+The accuracy is 0.032, sensitivity is 1, specificity is	0. 
+```{r}
+test <- test %>%
+  mutate(prob = predict(train_results, newdata =test, type ="response"),
+         prediction = ifelse(prob > 0.5,"yes","no"),
+         prediction = fct_relevel(prediction,"yes", "no"))
+conf_mat <- table(predict = test$prediction, truth = test$PregnantNow)
+conf_mat
+test %>%
+summarize(accuracy = 16/505,
+          sensitivity=sum(PregnantNow =="yes" & prediction =="yes")/sum(PregnantNow =="yes"), 
+           specificity = sum(PregnantNow =="no" & prediction =="no")/sum(PregnantNow =="no")
+)
+```
+
+
+
+### e.
+
+
+The accuracy is 0.350, sensitivity is 0.44, specificity is	0.35. 
+
+```{r}
+test <- test %>%
+  mutate(prob = predict(train_results, newdata =test, type ="response"),
+         prediction = ifelse(prob> 0.95,"yes","no"),
+         prediction = fct_relevel(prediction,"yes")) 
+conf_mat <- table(predict = test$prediction, truth = test$PregnantNow)
+conf_mat
+test %>%
+summarize(accuracy = mean(PregnantNow == prediction),
+          precision = sum(PregnantNow ==
+"yes" & prediction =="yes")/sum(prediction =="yes"),
+          sensitivity=sum(PregnantNow =="yes" & prediction =="yes")/sum(PregnantNow =="yes"), 
+          specificity = sum(PregnantNow =="no" & prediction =="no")/sum(PregnantNow =="no")
+)
+```
+
+
+### f. 
+
+
+*answer:*
+
+I would use a threshold of 0.5 if we are trying to correctly identifying woman who were pregnant at a high rate.(high sensitivity)
+
+If we want a low chance of miss classifying a woman who was not pregnant, we would prefer the 0.05 threshold. (better specificity)
+
+
+
+### g. 
+
+The overall rate of pregnancies in your data constructed in part a should be around 5%. Barb, the lazy data scientist, decided simply to classify woman as "pregnant" based on this 5% rate (since, hey, it will result in about 5% of her predictions being pregnant which matches the rate in the data!). Compute the confusion matrix, accuracy, sensitivity and specificity. Make sure to explain/show your work for these calculations.
+
+
+*answer:*
+
+The accuracy is 0.92, sensitivity is 0.06, specificity is	0.94. 
+
+Process: first, run binomial for every row, lazy=1 means pregnant, lazy=0 means not pregnant; then, mutate into "yes" and "no" entries; then compute confusion matrix, accuracy, sensitivity and specificity as before. 
+
+```{r}
+# run binomial for every row, lazy=1 means pregnant, lazy=0 means not pregnant
+test$lazy <- rbinom(n = nrow(test), size = 1, prob = 0.05)
+#mutate into "yes" and "no" entries
+test$g<-ifelse(test$lazy == 1, "yes", "no")
+levels(test$g)
+test <- test %>%
+  mutate(g = fct_relevel(g,
+  "yes")) #
+#compute accuracy, sensitivity and specificity
+test %>%
+summarize(accuracy = mean(PregnantNow == g),
+          precision = sum(PregnantNow ==
+"yes" & g =="yes")/sum(g =="yes"),
+          sensitivity=sum(PregnantNow =="yes" & g =="yes")/sum(PregnantNow =="yes"), 
+          specificity = sum(PregnantNow =="no" & g =="no")/sum(PregnantNow =="no")
+)
+#compute confusion matrix
+conf_mat <- table(predict = test$g, truth = test$PregnantNow)
+conf_mat
+```
+
+
+-----------------------------------------------
+
+## Problem 2
+ 
+
+
+### a. 
+
+
+*answer:*
+The accuracy is 0.96, sensitivity is 0.3125, specificity is	0.982. 
+
+```{r}
+standard_fun <- function(x) { (x - mean(x, na.rm=TRUE))/sd(x, na.rm = TRUE)}
+train <- train %>% select(PregnantNow, Age, BMI, HHIncomeMid, Height)
+test<- test %>% select(PregnantNow, Age, BMI,HHIncomeMid, Height)
+train_pred_stand <- train %>%
+select(-PregnantNow) %>%
+mutate_if(is.numeric, standard_fun)
+train_mns <- train %>%
+summarize_if(is.numeric, mean, na.rm = TRUE)
+train_sds <- train %>%
+  summarize_if(is.numeric, sd, na.rm = TRUE)
+test_pred_stand <- test %>% select(-PregnantNow)
+  
+for (i in colnames(train_mns)) {
+test_pred_stand[[i]] <- (test_pred_stand[[i]] - train_mns[[i]])/train_sds[[i]]
+}
+knn3 <- knn(train = train_pred_stand,
+  test = test_pred_stand,
+  cl = train$PregnantNow,
+k = 3)
+test <- test %>%
+mutate(prediction = knn3)
+test_stats <- test %>%
+summarize(accuracy = mean(prediction == PregnantNow),
+sensitivity = sum(prediction == "yes" & PregnantNow == "yes")/sum(PregnantNow == "yes"),
+specificity = sum(prediction == "no" & PregnantNow == "no")/sum(PregnantNow == "no"),
+precision = sum(prediction == "yes" & PregnantNow == "yes")/sum(prediction == "yes"))
+test_stats
+```
+
+
+### b. 
+
+
+*answer:*
+k=1 should be optimal in this case.
+```{r}
+eval_fun <- function(k, test_std, test) {
+test %>% mutate(prediction = knn(train = train_pred_stand,
+test = test_std, 
+cl= train$PregnantNow, # train classes
+k=k)) %>%
+summarize( k = k,
+accuracy = mean(prediction == PregnantNow),
+sensitivity = sum(prediction ==
+"yes" & PregnantNow ==
+"yes")/sum(PregnantNow ==
+"yes"),
+specificity = sum(prediction ==
+"no" & PregnantNow ==
+"no")/sum(PregnantNow ==
+"no"),
+precision = sum(prediction ==
+"yes" & PregnantNow ==
+"yes")/sum(prediction ==
+"yes"))
+}
+k_df <- seq(1,21, by = 2)
+eval_df <- map_df(k_df, eval_fun, test_std = test_pred_stand, test = test)
+eval_df
+eval_df%>%
+select(k, accuracy, sensitivity, specificity, precision) %>%
+pivot_longer(
+cols = 2:5,
+names_to = "metric",
+values_to = "value"
+) %>%
+ggplot(aes(x = k)) +
+geom_line(aes(y = value, color = metric))
+```
+
+
+
+### c.
+
+ 
+
+*answer:*
+Again seems like the optimal k is 1. 
+```{r}
+train <- train %>% select(PregnantNow, Age, BMI, HHIncomeMid, Height)
+test<- test %>% select(PregnantNow, Age, BMI,HHIncomeMid, Height)
+more_stats <- function(data, lev = NULL, model = NULL){
+def <- defaultSummary(data, lev, model) # accuracy
+met2 <- twoClassSummary(data, lev, model) # roc, sens, spec
+met3 <- prSummary(data, lev, model) # precision
+c(def, met2, met3) # return all three
+}
+train_control <- trainControl(
+method = "cv",
+number = 10,
+summaryFunction = more_stats
+)
+k_df <- data.frame(k = seq(1, 31, by = 2))
+set.seed(30498)
+cv_acc <- train(
+PregnantNow ~ . , # predict class using all other variables in training
+data = train, # training data
+method = "knn", # classification method
+preProc = c("center", "scale"), # standardize predictors
+tuneGrid = k_df, # knn parameters
+trControl = train_control # validation method
+)
+cv_acc$finalModel
+cv_acc$result %>%
+select(k, Accuracy, Sens, Spec, Precision) %>%
+filter(k == 1)
+```
+
+
+### d.
+
+
+*answer:*
+Again seems like the optimal k is 1. 
+```{r}
+train2 <- train %>% select(PregnantNow, Age, BMI, HHIncomeMid, Height)
+test2<- test %>% select(PregnantNow, Age, BMI,HHIncomeMid, Height)
+set.seed(30498)
+train_control <- trainControl(
+method = "cv",
+number = 10,
+summaryFunction = more_stats,
+classProbs = TRUE
+)
+cv_roc <- train(
+PregnantNow ~ . , 
+data = train2, 
+method = "knn", 
+preProc = c("center", "scale"), 
+tuneGrid = k_df, 
+trControl = train_control,
+metric = "ROC"
+)
+cv_roc$finalModel
+cv_roc$result %>%
+select(k, Accuracy, Sens, Spec, Precision) %>%
+filter(k == 1)
+```
+
+
+### e. 
+
+
+
+*answer:*
+
+Since the optimal neighborhood size are both 1 using accuracy and ROC model, we use k=1. 
+```{r}
+test <- test %>%
+mutate(PregnantNow = relevel(PregnantNow, "yes"))
+preg_acc <- confusionMatrix(
+data = predict(cv_acc, newdata = test),
+reference = test$PregnantNow,
+positive = "yes",
+mode = "everything")
+preg_acc$byClass
+df <- bind_rows(
+preg_acc$byClass)
+df <- df %>%
+mutate(neigh_size = c("k=1"))
+knitr::kable(df %>%
+select(neigh_size, Sensitivity, Specificity, Precision ))
+```
+
+
+
+-------------------------------------------
+
+
+## Problem 3
+
+
+
+```{r}
+data("storms", package = "nasaweather")
+storms$type <- factor(storms$type)
+table(storms$type)
+storms <- storms %>% 
+  mutate(class = fct_collapse(type, 
+            Tropical_Depression = "Tropical Depression",
+            other  = c("Extratropical", "Hurricane", "Tropical Storm")), 
+         class = fct_relevel(class, "Tropical_Depression"))
+table(storms$type, storms$class)
+levels( storms$class)
+```
+
+
+
+### a.
+
+
+
+*answer:*
+
+Wind speed higher than 22.5 generally lead us to identify the storm as tropical depressions. Wind speed lower than 22.5 with pressure lower than 1012.5 generally lead us to identify the storm as tropical depressions as well. 
+
+```{r}
+storms_rpart <- rpart(class ~ wind+pressure, data = storms)
+plot(as.party(storms_rpart), type = "simple")
+```
+
+
+
+### b. 
+
+
+
+*answer:*
+
+```{r}
+storms %>%
+  ggplot(aes(x = wind, pressure)) +
+  geom_jitter(aes(color=class)) +
+  geom_segment(x = 32.5, xend =32.5, y =  -Inf, yend = +Inf, size = .75, color = "blue") +
+  geom_segment(x = -Inf, xend = +Inf, y = 1012.5, yend = 1012.5, size = .75, color = "red") +
+  geom_segment(x = 22.5, xend = 22.5, y = -Inf, yend = +Inf, size = .25, color= "yellow") 
+```
+
+
+
+### c. 
+
+
+*answer:*
+It's relatively straightforward using wind and pressure to distinguish between storms. Wind speed seems like the most important when classifying storm types. 
+ 
+```{r}
+type_rpart <- rpart(type ~ wind+pressure, data = storms)
+plot(as.party(type_rpart), type = "simple")
+```
+
+
+### d. 
+
+
+
+*answer:*
+
+The accuracy is 89.63%, meaning that about 89.63% of all cases, their types were predicted correctly using our model. 
+
+We identify storms with wind speed higher than 62.5 as Hurricane, those with wind speed lower than 32.5 as Tropical Depression. For those storms with wind speed between 32.5 to 62.5, we identify them as Extratropical storms if the pressure level is lower than 985.5, otherwise we identify them as Tropical Storm. 
+
+```{r}
+accu<-(127+926+513+896)/(412+896+513+926)
+accu
+```
