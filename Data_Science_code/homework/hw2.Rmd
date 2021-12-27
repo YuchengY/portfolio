@@ -1,0 +1,217 @@
+---
+title: "Homework 2"
+output: pdf_document
+---
+
+## Name: Yucheng Yang
+
+## I worked with: 
+
+**Click the "Knit" button in RStudio to knit this file to a pdf.**
+
+--------------------------------------------
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, 
+                      warning = FALSE, message = FALSE)
+library(ggplot2)
+library(dplyr)
+library(gapminder)
+library(mapproj)
+library(maps)
+```
+
+
+
+## Problem 1: Penguins 
+
+### a. 
+
+*answer:* write your answer here
+
+```{r}
+data(penguins, package = 'palmerpenguins')
+p<-ggplot(data=penguins)+geom_point(mapping=aes(x=bill_length_mm,y=body_mass_g))+facet_wrap(~species)
+p
+```
+
+### b. 
+
+*answer:* write your answer here
+
+```{r}
+p+ geom_smooth(aes(x=bill_length_mm,y=body_mass_g),method = lm, se = FALSE)
+```
+
+### c. 
+
+*answer:* write your answer here
+
+```{r}
+ggplot(data=penguins,mapping=aes(x=bill_length_mm,y=body_mass_g,color=species))+
+  geom_point()+
+  geom_smooth(method = lm,se = FALSE)+
+  scale_colour_brewer(palette = "Set5")
+```
+
+### d. 
+
+*answer:* 
+*The plot in part b is easier for comparing slopes. Having individual regression line for each species displayed on separate graphs but with the same scale makes it easier for human eyes to distinguish steeper slopes from shallower ones. Looking at the plot in part c, the regression lines for Adelie and Gentoo look almost parallel to each other, but in part b we can see that Gentoo slope is actually steeper.
+
+
+----------------------------------
+
+
+## Problem 2: Spot the error
+
+
+*answer:* 
+*Because the color="blue" was included in the aesthetic mapping part, R will consider it as the mapping correspondence between a variable and a value from the dataset just like the correspondence between x and "displ". But we don't have any value in the data with the name "blue" so R can't map it to a variable. 
+
+```{r}
+ggplot(data = mpg) + 
+  geom_point(mapping = aes(x = displ, y = hwy), color = "blue")
+```
+
+
+
+
+----------------------------------
+
+
+
+## Problem 3: Storm paths by year
+
+### a. 
+
+*answer:* write your answer here
+
+```{r}
+data(storms, package = "nasaweather")
+ggplot(data=storms,mapping=aes(x=long,y=lat)) + 
+  coord_map() +
+  geom_path(aes(col=name))+
+  facet_wrap(~year)+scale_color_discrete(guide="none")
+```
+
+
+### b. 
+
+*answer:* write your answer here
+
+
+```{r}
+world<-map_data("world")
+world$region<-tolower(world$region)
+pick<-dplyr::filter(world,(region %in% c("usa", "mexico", "canada", "uk")))
+latm<-min(storms$lat)
+latmx<-max(storms$lat)
+longm<-min(storms$long)
+longmx<-max(storms$long)
+ggplot(data=storms,mapping=aes(x=long,y=lat))  +
+geom_path(aes(col=name))+
+  facet_wrap(~year)+
+  scale_color_discrete(guide="none")+
+  geom_polygon(data=pick,aes(x=long,y=lat,group=group,label=region),color="grey",fill=NA)+
+  coord_map(xlim=c(longm,longmx),ylim=c(latm,latmx))
+```
+
+
+----------------------------------
+
+
+## Problem 4: Storm types by year
+
+### a. 
+
+```{r}
+ggplot(storms)+geom_bar(mapping=aes(x=year,fill=type),position ="fill")+
+  scale_x_continuous(labels=c("1995","1996","1997","1998","1999","2000"),breaks=c(1995,1996,1997,1998,1999,2000))+
+  scale_fill_manual(values = c("red3", "seagreen", "lightgrey","purple"))
+```
+
+
+### b. 
+
+*answer:* 
+*1997 has the highest proportion of tropical storm among all years recorded. Since this is a stacked bar graph, so except for the tropical storms which are displayed at the bottom of the stacked bars, any other types of storms in the middle are visualized with chunks placed on different level line, which makes it hard to compare the area of these chunks with different starting level line and ending top line with human eyes.*
+
+----------------------------------
+
+## Problem 5: Make the graph
+
+```{r top left}
+#View(mpg)
+ggplot(mpg, aes(x = displ, y = hwy)) +
+  geom_point() +
+  geom_smooth(se = FALSE)
+```
+
+```{r top right}
+ggplot(mpg, aes(x = displ, y = hwy,group=drv)) +
+  geom_point() +
+  geom_smooth(se = FALSE)
+```
+
+```{r mid left}
+ggplot(mpg, aes(x = displ, y = hwy,color=drv)) +
+  geom_point() +
+  geom_smooth(se = FALSE)
+```
+
+```{r mid right}
+ggplot(mpg, aes(x = displ, y = hwy)) +
+  geom_point(aes(color=drv)) +
+  geom_smooth(se = FALSE)
+```
+
+```{r lower left}
+ggplot(mpg, aes(x = displ, y = hwy,color=drv)) +
+  geom_point() +
+  geom_smooth(aes(linetype=drv),color="blue",se = FALSE)
+```
+
+```{r lower right}
+ggplot(mpg, aes(x = displ, y = hwy)) +
+  geom_point( shape=21,color="white",size=2,stroke=2) +geom_point(aes(color = drv))
+```
+
+
+----------------------------------
+
+## Problem 6: Florence Nightingale's coxcomb graph
+
+### a.
+
+*answer:* 
+*The cause of death (preventable or mitigable zymotic diseases, wounds, and all other causes), month, and year. Each entry in the data should be one case of death. There's also country names specified in the pie chart on the right.*
+
+### b. 
+
+*answer:* 
+*It shows the percentage ratio between death caused by different causes for specific month, and it also displays month-to-month variance of the percentage of deaths with different causes. The transition from 1855 March to 1855 April showed the significant reduction in the toll of death.*
+
+
+### c.  
+
+*answer:*
+*This graph mainly used area and color cues to convey information. The area of each measure from the center of the circle in a particular color represents the data on death caused by one specific cause in a specific month. And different measures with different colors represents the cause for those deaths.*
+
+
+----------------------------------
+
+## Problem 7: Fisheries
+
+*answer:* 
+*I don't like the two pie charts on the tonnage of capture and aquaculture. It's hard to compare the difference in tonnage between different countries since it's hard tell which slice represents which country, also hard to compare the volume of these slices with human eyes. With so many slices clustering together, this visualization is daunting and challenging to the audience. Since there's only a few countries' color label were displayed, we can't know which slices other countries correspond to in the pie chart. Besides, it's hard to get an estimate of actual tonnage of capture or aquaculture from these pie charts.*
+*So instead, I used histograms to depict the tonnage of capture and aquaculture with labels for countries on the x-axis flipped so that we can see country names better from the graph. This time we can also get an estimate of a specific country's tonnage of capture or aquaculture if needed. With the height of bins capturing the tonnage, it's also easier to compare between countries and find the max or min among all these countries.*
+
+```{r}
+fish<-read.csv("data/fisheries.csv")
+ggplot(fish)+geom_bar(aes(x=country,y=capture),stat="identity")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+ggtitle("Capture")
+ggplot(fish)+geom_bar(aes(x=country,y=aquaculture),stat="identity")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+ggtitle("Aquaculture")
+```
