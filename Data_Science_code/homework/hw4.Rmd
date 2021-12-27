@@ -1,0 +1,233 @@
+---
+title: "Homework 4"
+output: pdf_document
+---
+
+## Name: Yucheng Yang
+
+## I worked with: 
+
+**Click the "Knit" button in RStudio to knit this file to a pdf.**
+
+--------------------------------------------
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, 
+                      warning = FALSE, message = FALSE)
+# add packages here 
+```
+
+## Assignment prompt
+
+## Problem 1: joins
+
+### a.
+
+*answer:*
+Add "Students" to "Classes" by the ID information for each student. 
+
+Class  | Student | Stud_Id | Computer |
+------ | ------- | ------- | -------  |
+CS     | Jon     | 4       | m        |
+CS     | Arya    | 1       | m        |
+CS     | Cersei  | 3       | w        |
+Stats  | Gregor  | 2       | m        |
+Stats  | Jon     | 4       | m        |
+Stats  | Jon     | 5       | w        |
+Stats  | Arya    | 1       | m        |
+
+
+### b.
+
+*answer:*
+Join cases of students who are both in Stats and CS classes by their ID info.  
+
+
+| Student | Stud_Id |
+| ------- | ------- |
+| Jon     | 4       |
+| Arya    | 1       |
+
+### c.
+
+*answer:*
+Join cases of students that're not are both in Stats and CS classes by their ID info. 
+
+| Student | Stud_Id |
+| ------- | ------- |
+| Cersei  | 3       |
+| Gregor  | 2       |
+| Jon     | 5       |
+
+------------------------------------------------------------------------
+
+## Problem 2: restructure
+
+
+### a.
+
+*answer:*
+This command produce a table with "Year" and "Clarity" as two columns and the 2rd to 4th columns in the original data set was mapped to these two columns. The original column names were mapped to the values under "Year" column and the values under the 2rd to 4th columns in the data set were mapped to the values under "Clarity" column. 
+
+
+| Year | Clarity |
+|----- |-------- |
+| 2012 | 6.5     | 
+| 2012 | 2.1     | 
+| 2013 | 5.8     | 
+| 2013 | 3.4     |
+| 2014 | 5.8     |
+| 2014 | 2.8     | 
+ 
+
+
+### b.
+
+*answer:*
+Create the same table in part a but group the rows by "LakeID" and arrange the rows by "Year" variable in ascending order. Add a new column named "Change_in_Clarity" as the difference of the "Clarity" value of the preceding year minus the "Clarity" value of the current year . 
+
+
+| Year  | Clarity  | Change_in_Clarity
+| ----- | -------- | --------
+| 2012  | 6.5      | NA
+| 2013  | 5.8      | -0.7
+| 2014  | 5.8      | 0
+| 2012  | 2.1      | -3.7
+| 2013  | 3.4      | 1.3
+| 2014  | 2.8      | -0.6
+
+
+
+------------------------------------------------------------------------
+
+## Problem 3: baseball
+
+*answer:*
+
+
+
+### a.
+
+*answer:*
+
+```{r}
+library(tidyverse)
+library(Lahman)
+temp<-inner_join(Batting, People, by="playerID")
+str(temp)
+```
+
+
+### b.
+
+*answer:*
+Players who have had accumulated at least 300 home runs (`HR`) and at least 300 stolen bases (`SB`) inludes Carlos	Beltran, Barry Bonds, Bobby	Bonds, Andre	Dawson, Steve	Finley, Willie	Mays, Alex	Rodriguez, Reggie	Sanders.
+
+```{r}
+#View(Batting)
+ids<-temp %>% group_by(playerID) %>% 
+  summarise(sum_run=sum(HR), sum_bases=sum(SB)) %>% 
+  filter(sum_run>300, sum_bases>300) %>% 
+  select(playerID)
+inner_join(ids, temp) %>% select(nameFirst, nameLast) %>% unique()
+```
+
+
+------------------------------------------------------------------------
+
+## Problem 4: baseball again
+
+Load the `Teams` data from the `Lahman` baseball package. Consider the number of home runs `HR` and home runs allowed `HRA` for the Chicago Cubs baseball team `CHN`. Reshape the `Teams` data into a long format that gathers the `HR` and `HRA` variables. Then plot a time series (by year) of homeruns based on whether the home runs that involved the Cubs were hit by them or allowed by them. Interpret the plot.
+
+*answer:*
+Both the HR and HRA numbers for Chicago Cubs baseball team has been fluctuating and increasing in general since 1880. In around 1882, 1930, 1985, and 2018 there's surge in home run numbers and corresponding increase in number of home run allowed as well. In general, Chicago team seems to be doing well and is getting better. 
+```{r}
+#View(Teams)
+Teams %>% filter(teamID=="CHN") %>% 
+  pivot_longer(col=c("HR","HRA" ), names_to = "types", values_to = "counts") %>% 
+  ggplot(aes(x=yearID, y=counts) ) +geom_line(aes(color=types),stat="identity")+
+  ggtitle("Number of HR and HRA for the Chicago Cubs baseball team")
+                 
+```
+
+------------------------------------------------------------------------
+
+## Problem 5: planes
+
+Use the `nycflights13` package and the `flights` and `planes` data frames to answer the questions below. Use the `dplyr` package to answer the questions below. (See `nycflights13` help files for more data set details)
+
+### a.What variable is the key that connects these two data sets?
+*answer:*
+
+Tailnum.
+```{r}
+library(nycflights13)
+#View(flights)
+#View(planes)
+```
+
+### b. How many planes that flew out of NYC airports in 2013 are in the `planes` data set? How many are *not* in this data set?
+*answer:*
+There are 3322 planes that flew out of NYC airports in 2013 that are also in the `planes` data set. There are 722 flights that are not in "plane" data set. 
+```{r}
+in_plane<-semi_join(flights, planes, by="tailnum") %>% select(tailnum) %>% unique()
+nrow(in_plane)
+all<-flights %>% filter(year=="2013") %>% select(tailnum) %>% unique()
+diff<-nrow(all)-nrow(in_plane)
+diff
+```
+
+
+### c.
+What is the oldest plane (or planes) that flew out of NYC in 2013? Give the tail number(s), the year it was manufactured, and its number of flights from NYC in 2013. 
+
+*answer:*
+The oldest plane that flew out of NYC in 2013 was N381AA manufactured in 1956, it has flew 22 flights from NYC in 2013. 
+```{r}
+semi_join(planes,flights, by="tailnum") %>% arrange(year) %>% 
+  select(tailnum,year) %>% slice_min(year)
+flights %>% group_by(tailnum) %>% 
+  summarise(n=n()) %>% 
+  filter(tailnum=="N381AA")
+```
+
+
+### d.
+Use a filtering join of `planes` to find the planes flying out of NYC airports in 2013, then create a graph that shows the distribution of manufactured year. Describe the distribution. 
+
+*answer:*
+Most of the planes that flew out of NYC airports in 2013 were manufactured around year 2000, and the distribution of manufactured year is heavily left skewed with a few potential outliers on the left tail. 
+```{r}
+semi_join(planes, flights, by="tailnum") %>% 
+  ggplot(aes(x=year))+geom_histogram()
+```
+
+------------------------------------------------------------------------
+
+## Problem 6: top destinations
+```{r, eval=TRUE}
+top_dest <- flights %>% 
+  group_by(dest) %>% 
+  summarize(N=n()) %>% 
+  slice_max(N, n = 10)
+```
+
+### a.
+The dimension of this data set is 141145 times 19.
+```{r}
+p6_a<-semi_join(flights, top_dest, by="dest")
+dim(p6_a)
+```
+
+### b.
+*answer:*
+The median number of minutes between flights grouped by destination was shown in the data frame below.
+```{r}
+library(lubridate)
+p6_a %>% mutate(scheduled_departure=make_datetime(year, month, day, hour, minute)) %>%
+  group_by(dest) %>% 
+  mutate(btw = ( lag(scheduled_departure) %--% scheduled_departure ) /dminutes(1)) %>% 
+  drop_na(btw) %>% 
+   summarise(med=median(btw))
+ 
+```
