@@ -1,0 +1,285 @@
+---
+title: "Homework 9"
+output: pdf_document
+---
+
+## Name: Yucheng Yang
+
+## I worked with: 
+
+
+--------------------------------------------
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, 
+                      warning = FALSE, message = FALSE)
+library(caret)
+library(tidyverse)
+library(partykit)
+library(randomForest)
+library(rpart)
+```
+
+
+## Assignment prompt
+
+
+## Problem 1: Spam using k-nn
+
+
+
+```{r}
+# tsv = tab separated values!
+spam <- read_delim("http://math.carleton.edu/kstclair/data/spamD.txt", 
+        delim="\t")
+# some clean up
+spam <- spam %>% 
+  mutate(class = fct_recode(
+    spam, 
+    spam = "spam" , 
+    nonspam = "non-spam")) %>%  # rename levels because caret doesn't like "non-spam" 
+  select(-rgroup, -spam) # don't need random group variable and  spam variable
+# relevel to make "spam" the first level:
+levels(spam$class)
+spam <- spam %>% mutate(class = fct_relevel(class, "spam"))
+levels(spam$class)
+```
+
+### (a)
+
+
+*answer:*
+
+```{r}
+set.seed(4567)
+n <- nrow(spam)
+train_index <- sample(nrow(spam), size = round(n*0.8))
+train_s <- spam %>%
+slice(train_index) 
+test_s <- spam %>%
+slice(-train_index) 
+```
+
+### (b)
+
+
+
+*answer:*
+The optimal `mtry` value is 9. 
+
+```{r}
+set.seed(45678)
+train_control <- trainControl(
+  method ="cv", 
+  number = 5,)
+m_grid <- data.frame(mtry = seq(6,10, by = 1))
+spam_rf_cv <- train(
+  class ~ .,
+  data = train_s, # training data
+  method ="rf", 
+  tuneGrid = m_grid, 
+  trControl = train_control 
+)
+plot(spam_rf_cv)
+```
+
+
+
+
+```{r}
+```
+
+### (c)
+
+
+*answer:*
+
+The most important three predictors are the percentage of characters in the e-mail that match "bang", "dollar", and percentage of words in the e-mail that match "remove". 
+```{r}
+set.seed(45678)
+spam_rforest <- randomForest(
+  class ~ . ,
+  data = train_s,
+  mtry = 7)
+varImpPlot(spam_rforest)
+```
+
+
+### (d)
+
+
+*answer:*
+
+1. when the percentage of characters in the e-mail that match "bang" is equal or higher than 0.08 and the percentage of characters in the e-mail that match "dollar" is higher or equal to 0.006, we identify the email as spam. 
+
+2. when the percentage of characters in the e-mail that match "bang" is equal or higher than 0.08, the percentage of characters in the e-mail that match "dollar" is higher than 0.006, and percentage of words in the e-mail that match "remove" is higher or equal than 0.06, we identify the email as spam. 
+
+3.when the percentage of characters in the e-mail that match "bang" is between 0.5, the percentage of characters in the e-mail that match "dollar" is higher than 0.006, and percentage of words in the e-mail that match "remove" is higher or equal than 0.06, we identify the email as spam. 
+
+4.when the percentage of characters in the e-mail that match "bang" is lower than 0.08, and percentage of words in the e-mail that match "remove" is higher or equal than 0.045, we identify the email as spam. 
+
+5.when the percentage of characters in the e-mail that match "bang" is lower than 0.08, the percentage of characters in the e-mail that match "dollar" is higher than 0.1, and percentage of words in the e-mail that match "remove" is lower 0.045, we identify the email as spam. 
+
+
+
+```{r}
+spam_rpart <- rpart(
+  class ~ char.freq.bang+char.freq.dollar+word.freq.remove , 
+  data = train_s)
+plot(as.party(spam_rpart), type ="simple")
+```
+
+
+
+### (e)
+
+
+*answer:*
+
+Using random forest classifier constructed in part c, we have accuracy as 95.33%, sensitivity as 92.35%, specificity as 97.07%.
+
+Use the decision tree in part d, we have accuracy as 90.11%, sensitivity as 84.12%, specificity as 93.62%.
+Random forest classifier have higher of all three metrices value compared to decision tree. 
+
+I'd choose the classifier in c (random forest), 
+
+```{r}
+#d
+spam_preds <- predict(spam_rpart, newdata = test_s, type ="class")
+test_s %>% as_tibble %>% mutate(prediction = spam_preds) %>% 
+  summarise(accuracy= mean(class==prediction), 
+            sensitivity = sum(prediction ==
+              "spam" & class =="spam")/sum(class == "spam"),
+            specificity = sum(prediction =="nonspam" & class =="nonspam")/sum(class =="nonspam"))
+#c 
+confm_test <- caret::confusionMatrix(
+data = predict(spam_rforest, newdata=test_s),reference = test_s$class,
+positive = "spam" )
+confm_test$byClass
+accu<-(314+563)/(314+563+17+26)
+accu
+```
+
+
+----------------------------------------
+
+
+
+## Problem 2: Incoming student characteristic
+
+```{r}
+colleges <- read_csv("http://math.carleton.edu/kstclair/data/Colleges.csv")
+names(colleges)
+colleges2 <- colleges %>% 
+  filter(State %in% c("MN","MA","CA"))
+colleges2 %>% count(State)
+colleges2 <- colleges2 %>% select(1,2,3,4,7,8)
+colleges2
+```
+
+### (a)
+
+*answer:*
+
+Because we form clusters by grouping points with similar variable values together, and if say x and y variables have very different scale, then the clusters wouldn't be very accurate. And we can avoid this problem by standardizing our variable. 
+
+
+### (b)
+
+*answer:*
+
+```{r}
+standard_fun <- function(x) { (x - mean(x, na.rm=TRUE))/sd(x, na.rm = TRUE)}
+college_pred <- colleges2 %>%
+select(SATM, SATV, HStop10, HStop25) %>%
+drop_na() %>% 
+mutate_all(standard_fun)
+```
+
+
+### (c)
+
+
+
+*answer:*
+
+Over all cases, the total variation is 200, the total within cluster sum of squares is about 21.38.
+```{r}
+set.seed(45678)
+km_college_5 <- kmeans(college_pred,
+centers = 5, 
+nstart = 20)
+km_college_5$tot.withinss
+km_college_5$totss
+```
+
+
+### (d)
+
+
+*answer:*
+
+The within cluster variation go up. Since the number is calculated as the $sum(y_{i}-\bar y)$, so decreasing the number of clusters will always increase the within cluster variation since $y_{i}-\bar y$ would increase for every point. 
+
+```{r}
+```
+
+
+### (e)
+
+*answer:*
+
+K=3 seems the optimal one since the reduction in total within cluster sum of squares from 1 to 3 is the most significant. 
+
+```{r}
+k <- 1:20
+set.seed(45678)
+km_df <- map_df(k, .f = function(x){
+  km <- kmeans(college_pred, centers = x, nstart = 20)
+  tibble(k = x, 
+         total_wss = km$tot.withinss,
+         prop_explained = 1 - km$tot.withinss/km$totss)
+})
+ggplot(km_df, aes(x = k, y = total_wss)) +
+geom_point() + geom_line() +
+scale_x_continuous(breaks=1:20)
+```
+
+### (f)
+
+
+
+*answer:*
+
+```{r}
+set.seed(45678)
+km_college_3<- kmeans(college_pred,
+centers = 3, # just a guess!
+nstart = 20)
+colleges2 <- colleges2 %>%
+  drop_na() %>% 
+  mutate(km_clus_3 = str_c("cluster_",km_college_3$cluster))
+head(colleges2)
+```
+
+
+
+### (g)
+
+
+```{r}
+library(GGally)   # install if needed
+colleges2 %>% 
+  ggpairs(aes(color = km_clus_3), 
+          columns=c("SATM", "SATV", "HStop10", "HStop25"))
+```
+
+*answer:*
+
+If we only use variables `SATV` and `SATM`, then for each case, chances that it will be categorised into cluster1 are 76.3%, to cluster2 are 84.2%, to cluster3 is 66.4%;
+Similarly, if we're using variables `HStop10` and `SATM`, then for each case, chances that it will be categorised into cluster1 are 33.5%, to cluster2 are 52.9%, to cluster3 is 28.4%;
+Similarly, if we're using variables `HStop25` and `SATM`, then for each case, chances that it will be categorised into cluster1 are 29.1%, to cluster2 are 49.0%, to cluster3 is 27.2%;
+Similarly, if we're using variables `HStop10` and `SATV`, then for each case, chances that it will be categorised into cluster1 are 19.7%, to cluster2 are 65.7%, to cluster3 is 63.6%;
+Similarly, if we're using variables `HStop25` and `SATV`, then for each case, chances that it will be categorised into cluster1 are 27.7%, to cluster2 are 69.9%, to cluster3 is 62.2%;
+Similarly, if we're using variables `HStop25` and `HStop10`, then for each case, chances that it will be categorised into cluster1 are 79.1%, to cluster2 are 95.3%, to cluster3 is 96.2%;
+
