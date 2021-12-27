@@ -1,0 +1,37 @@
+---
+title: "Homework 0"
+output: pdf_document
+---
+
+## Name: Yucheng Yang 
+
+## I worked with: 
+
+**Click the "Knit" button in RStudio to knit this file to a pdf.**
+
+--------------------------------------------
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1
+
+
+
+### a. 
+
+*answer:* There's 700 cases and 21 variables in this dataset.
+
+```{r}
+loans <- read.csv("http://math.carleton.edu/kstclair/data/day1CreditData.csv")
+dplyr::glimpse(loans)
+```
+
+### b. 
+
+*answer:* There are 482 cases of good loans.
+
+```{r}
+table(loans$Good.Loan)
+```
