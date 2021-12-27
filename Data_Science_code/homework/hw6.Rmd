@@ -1,0 +1,313 @@
+---
+title: "Homework 6"
+output: pdf_document
+---
+
+## Name: Yucheng Yang
+
+## I worked with: 
+
+
+--------------------------------------------
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, 
+                      warning = FALSE, message = FALSE)
+library(tidyverse) 
+library(tidyr)
+library(nasaweather)
+library(purrr)
+library(alphavantager)
+library(ggplot2)
+library(rvest)
+library(stringr)
+```
+
+## Assignment prompt
+
+## Problem 1: IPS
+
+### a.
+
+
+*answer:*
+
+```{r}
+address<-readr::read_lines("https://math.carleton.edu/kstclair/data/mac-address.txt")
+```
+
+### b.
+
+
+*answer:*
+
+```{r}
+main<-address %>% str_split(";") %>% unlist()
+main
+```
+
+### c.
+
+*answer:*
+
+```{r}
+mt<-str_split(main[1:4], "=", simplify = TRUE)
+names<-mt[1:4, 1]
+values<-mt[1:4, 2]
+names
+values
+```
+
+### d.
+
+*answer:*
+
+```{r}
+rest<-str_split(main[5:15], "=", simplify = TRUE) 
+a<-rest[1:11,1]
+b<-rest[1:11,2] %>% str_split( ",", simplify = TRUE)
+info<-as.matrix(cbind(a,b))
+info
+```
+
+### e.
+
+*answer:*
+
+```{r}
+colnames(info)<-c("mac", "signal", "channel", "type")
+info_n<-as.data.frame(info)
+offline <- info_n %>% mutate(t=values[1], id=values[2], pos=values[3], degree=values[4])
+offline<-offline[,c(5,6,7,8,1,2,3,4)] %>% as_tibble()
+offline
+```
+
+### f
+
+*answer:*
+
+```{r}
+offline <- offline %>% separate(pos, c("pos_x", "pos_y", "pos_z"), ",", convert=TRUE) 
+offline$degree<-as.numeric(offline$degree)
+offline$signal<-as.numeric(offline$signal)
+offline
+```
+
+
+---------------------------------------
+
+## Problem 2: weather
+Load the `nasaweather` data and look at the help file for the atmospheric data `?atmos`. 
+
+### a.
+
+*answer:*
+
+```{r}
+library(nasaweather)
+nasaweather::atmos
+coef<-rep(NA,7)
+coef_vari<-function(x) {
+  for (i in 1:7){
+    coef[i]<-sd(x[[i]], na.rm = TRUE)/mean(x[[i]], na.rm = TRUE)
+  }
+coef
+}
+coef_vari(atmos[5:11])
+```
+
+### b.Use a `map` function (from `purrr` package) to compute the coefficient of variation for all atmospheric measurements except location (lat/long) and time (year, month) variables. Use a function that returns a vector or data frame (and show this output).
+
+*answer:*
+
+```{r}
+atmos[,5:11] %>% 
+  map_df(function(x){
+    tibble(
+      coef_var=sd(x,na.rm=TRUE)/mean(x,na.rm=TRUE)
+    )
+  })
+```
+
+### c.Create a function called `my_stats` that computes the following statistics for an input vector: mean, sd, and 5-number summary (min/Q1/median/Q3/max). The function should return an  output object that is a "named" vector. E.g. the following is a named vector with the name of the left side of `=` and the value on the right side. Show the output of your function by inputting the `temp` values from `atmos`.
+
+*answer:*
+
+```{r}
+#c(x = 1, y = 2)
+my_stats <- function(x) {
+  mn<-mean(x,na.rm=TRUE)
+  standard_dev<-sd(x,na.rm=TRUE)
+  minimum<-min(x,na.rm=TRUE)
+  q1<-quantile(x,0.25,na.rm=TRUE)
+  med<-median(x,na.rm=TRUE)
+  q3<-quantile(x,0.75,na.rm=TRUE)
+  maximum<-max(x,na.rm=TRUE)
+  c(mean=mn,sd=standard_dev,min=minimum,Q1=q1,median=med,Q3=q3,max=maximum)
+  
+}
+my_stats(atmos$temp)
+```
+
+### d.
+
+
+*answer:*
+
+```{r}
+atmos[,5:11] %>% 
+  map_df(my_stats) %>% mutate(var_name = colnames(atmos[,5:11]))
+```
+
+### e.
+
+*answer:*
+
+```{r}
+atmos %>% 
+  group_by(year) %>% 
+  summarise( try = my_stats(temp)) %>% 
+  mutate(var_name=c("mean", "sd", "min", "Q1", "median", "Q3", "max")) %>% 
+  pivot_wider(names_from = year, values_from = try)
+```
+
+
+---------------------------------------
+
+## Problem 3: Crimes
+
+
+
+```{r, eval = FALSE}
+ggplot(crimes, aes(x = violent_crime, y = property_crime, label = City)) +
+    geom_point() +
+    geom_text(
+      data = filter(crimes_clean, violent_crime > 1500 | property_crime > 6500), 
+      check_overlap = TRUE, size = 2.5, nudge_y = 40
+    )
+```
+
+
+
+*answer:*
+
+```{r}
+#sorry my network always fails when retrieving html file from the internet, so i had to download the html page and put it in the directory for the code to run
+url<- "crime_rate_wiki.htm"
+page <- read_html(url)
+tables.html <- html_nodes(page, "table")
+#str(tables.html)
+table<-html_table(tables.html[[1]], fill=TRUE)
+crime<- table %>% select(c(2,4,10)) 
+colnames(crime)[1]<-"City"
+colnames(crime)[2]<-"violent_crime"
+colnames(crime)[3]<-"property_crime"
+crime
+new_crime<-crime[-1, ] %>% 
+  drop_na() %>%
+  mutate(violent_crime=parse_number(violent_crime), property_crime=parse_number(property_crime))
+new_crime <- new_crime %>% as.tibble() %>% drop_na()
+ggplot(new_crime, aes(x = violent_crime, y = property_crime, label = City)) +
+    geom_point() +
+    geom_text(
+      data = filter(new_crime, violent_crime > 1500 | property_crime > 6500), 
+      check_overlap = TRUE, size = 2.5, nudge_y = 40
+    )
+```
+
+
+----------------------------------------
+
+## Problem 4: Movie scraping
+
+
+### a.
+
+*answer:*
+There is one HTML table on the page that contains the box office earnings. 
+```{r}
+url1 <- "https://www.boxofficemojo.com/chart/ww_top_lifetime_gross/?offset=0&area=XWW"
+page1 <- read_html(url1)
+str(page1)
+tables.html1 <- html_nodes(page1, "table")
+str(tables.html1)
+html_text(tables.html1)
+```
+
+
+
+### b.
+
+*answer:*
+
+```{r}
+tables<-html_table(tables.html1[[1]], fill=TRUE)
+glimpse(tables)
+movie<-tables %>% as.tibble()
+colnames(movie)[1:8]<-c("rank", "title", "world_dollars","domestic_dollars", "domestic_percentage", "overseas_dollars", "overseas_percentage", "year")
+movie
+```
+
+### c.
+
+*answer:*
+
+```{r}
+movie<-movie %>% 
+  mutate(world_dollars=parse_number(world_dollars), domestic_dollars = parse_number(domestic_dollars), domestic_percentage = parse_number(domestic_percentage), overseas_dollars = parse_number(overseas_dollars), overseas_percentage= parse_number( overseas_percentage))
+movie
+```
+
+### d.
+
+
+*answer:*
+
+```{r}
+links_table<-html_nodes(tables.html1[[1]], "a")
+pulled<-html_attr(links_table[5], "href")
+full<-str_c("http://www.boxofficemojo.com", pulled)
+full
+```
+
+### e.
+
+*answer:*
+
+
+```{r}
+first_page <- "https://www.boxofficemojo.com/chart/ww_top_lifetime_gross/?offset=800&area=XWW"
+read_page <- function(x){
+  page <- read_html(x)
+  tables.html <- html_nodes(page, "table")
+  table<- html_table(tables.html1[[1]], fill=TRUE) %>% as.tibble()
+  colnames(table)[1:8]<-c("rank", "title", "world_dollars","domestic_dollars", "domestic_percentage", "overseas_dollars", "overseas_percentage", "year")
+  if(is.character(table$rank)){
+    table %>% mutate(rank=as.character(rank)) %>% 
+      mutate(world_dollars=parse_number(world_dollars), domestic_dollars = parse_number(domestic_dollars), domestic_percentage = parse_number(domestic_percentage), overseas_dollars = parse_number(overseas_dollars), overseas_percentage= parse_number( overseas_percentage))
+  }
+  else{
+    table %>% mutate(world_dollars=parse_number(world_dollars), domestic_dollars = parse_number(domestic_dollars), domestic_percentage = parse_number(domestic_percentage), overseas_dollars = parse_number(overseas_dollars), overseas_percentage= parse_number( overseas_percentage))
+  }
+  table
+}
+read_page(first_page)
+```
+
+
+### f.
+
+*answer:*
+
+```{r}
+temp_url <- "https://www.boxofficemojo.com/chart/ww_top_lifetime_gross/?offset=#&area=XWW"
+five<-rep(temp_url,5)
+five[1]<-str_replace(five[[1]], "#", "0")
+five[2]<-str_replace(five[[2]], "#", "200")
+five[3]<-str_replace(five[[3]], "#", "400")
+five[4]<-str_replace(five[[4]], "#", "600")
+five[5]<-str_replace(five[[5]], "#", "800")
+five
+five_page<-map_df(five, read_page)
+glimpse(five_page)
+```
