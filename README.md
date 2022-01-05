@@ -1,4 +1,4 @@
 # portfolio
 
-### Hi, my name is Yucheng Yang. I'm a statistics student about to graduate from Carleton College in 2022. 
-## This repository contains the project code from my past Stats and CS courses as well as the summer research projects I've done. 
+### Hello! My name is Yucheng Yang. I'm a statistics student about to graduate from Carleton College in 2022. 
+## This repository contains the project code from my past Stats and CS courses as well as the summer research project I've done. 
